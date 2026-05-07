@@ -150,8 +150,8 @@ scorepilot/
 ### 설치
 
 ```bash
-git clone https://github.com/your-repo/scorepilot.git
-cd scorepilot
+git clone https://github.com/kimhs0716/2026-NE-XT-CONTEST.git
+cd 2026-NE-XT-CONTEST/scorepilot
 npm install
 ```
 
@@ -168,6 +168,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 ### 개발 서버 실행
 
 ```bash
+cd scorepilot
 npm run dev
 # http://localhost:3000
 ```
@@ -217,15 +218,6 @@ npx vercel
 
 **배포 (Phase 11)**
 - [ ] Vercel 배포
-
----
-
-## 팀원
-
-| 이름 | 역할 | 학번 | 학과 |
-|------|------|------|------|
-| 이무겸 | 기획 / 개발 | 2024320094 | 컴퓨터학과 |
-| 김현수 | 개발 / 디자인 | 2024320087 | 컴퓨터학과 |
 
 ---
 
