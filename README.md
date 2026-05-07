@@ -157,8 +157,12 @@ npm install
 
 ### 환경 변수 설정
 
-`.env.local` 파일 생성 후 Supabase 프로젝트의 값을 입력하세요  
+`scorepilot/.env.example`을 복사해 `.env.local`을 만들고 Supabase 값을 입력하세요  
 (Supabase 대시보드 → Project Settings → API):
+
+```bash
+cp scorepilot/.env.example scorepilot/.env.local
+```
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
