@@ -4,17 +4,17 @@
 
 ## 개발 순서
 
-### Phase 1. 셋팅
+### Phase 1. 셋팅 ✅
 
-1. `create-next-app`으로 Next.js 14 프로젝트 생성 (TypeScript, Tailwind, App Router)
+1. `create-next-app`으로 Next.js 16 프로젝트 생성 (TypeScript, Tailwind, App Router)
 2. Supabase, shadcn/ui, Recharts 패키지 설치
-3. Supabase 대시보드에서 `grades`, `schedules` 테이블 생성 및 RLS 설정
+3. Supabase 대시보드에서 14개 테이블 생성 및 RLS 설정 (`initial_schema_Scorepilot.sql`)
 4. 브라우저용 / 서버용 Supabase 클라이언트 파일 분리 생성
 5. `.env.local`에 Supabase 환경 변수 등록
 
 ---
 
-### Phase 2. 로그인 / 회원가입
+### Phase 2. 로그인 / 회원가입 ✅
 
 1. 미들웨어(`middleware.ts`)로 라우트 보호
    - 비로그인 → `/login` 리다이렉트
@@ -25,14 +25,14 @@
 
 ---
 
-### Phase 3. 메인(랜딩) 페이지 (`/`)
+### Phase 3. 메인(랜딩) 페이지 (`/`) ✅
 
 - 서비스 소개 + 로그인/회원가입 유도 버튼
 - 로그인 상태면 `/dashboard`로 자동 이동
 
 ---
 
-### Phase 4. 성적 입력 및 관리 (`/grades`)
+### Phase 4. 성적 입력 및 관리 (`/grades`) ✅
 
 1. 서버에서 해당 유저 성적 데이터 조회 후 렌더링
 2. 입력 폼: 과목명, 시험 종류, 점수, 날짜

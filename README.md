@@ -74,7 +74,7 @@
 
 | 분류 | 기술 | 용도 |
 |------|------|------|
-| 프레임워크 | Next.js 14 (App Router) | 라우팅, SSR, API Routes |
+| 프레임워크 | Next.js 16 (App Router) | 라우팅, SSR, Server Actions |
 | 스타일링 | Tailwind CSS | 전체 레이아웃 및 유틸리티 |
 | UI 컴포넌트 | shadcn/ui | 버튼, 폼, 모달, 테이블 등 |
 | Auth + DB | Supabase | 인증, PostgreSQL DB, RLS |
@@ -85,29 +85,27 @@
 
 ## DB 설계 (Supabase)
 
-```
-users (Supabase Auth 기본 제공)
-  └─ id, email, created_at
+14개 테이블 + RLS 정책 + 관리자 확인 함수로 구성됩니다.
 
-grades
-  ├─ id
-  ├─ user_id        → users.id (RLS 기준)
-  ├─ subject        과목명
-  ├─ exam_type      시험 종류 (중간/기말/수행평가 등)
-  ├─ score          점수
-  ├─ exam_date      시험 날짜
-  └─ created_at
+| 테이블 | 설명 |
+|--------|------|
+| `profiles` | 사용자 기본 정보 (이름, 학교 구분) |
+| `user_roles` | 관리자/일반사용자 권한 구분 |
+| `subjects` | 사용자별 과목 목록 |
+| `subject_goals` | 과목별 목표 점수 |
+| `exams` | 시험 단위 (종류, 날짜, 만점) |
+| `grade_records` | 실제 성적 점수 (percentage는 자동 계산 컬럼) |
+| `schedules` | 캘린더 일정 (시험/과제/학원 등) |
+| `study_tasks` | 공부 할 일 체크리스트 |
+| `study_logs` | 실제 공부 기록 (시간, 난이도, 집중도) |
+| `analysis_reports` | 성적 분석 결과 |
+| `weakness_reports` | 취약 과목/단원 리포트 |
+| `learning_recommendations` | 맞춤 학습 전략 추천 |
+| `score_predictions` | AI 성적 예측 결과 |
+| `admin_logs` | 관리자 작업 이력 |
 
-schedules
-  ├─ id
-  ├─ user_id        → users.id (RLS 기준)
-  ├─ title          일정 제목
-  ├─ event_type     종류 (시험/수행평가/과제 등)
-  ├─ event_date     날짜
-  └─ created_at
-```
-
-> RLS(Row Level Security) 적용으로 각 사용자는 자신의 데이터만 조회·수정 가능
+> RLS(Row Level Security) 적용으로 각 사용자는 자신의 데이터만 조회·수정 가능  
+> 전체 스키마: `initial_schema_Scorepilot.sql`
 
 ---
 
@@ -119,18 +117,21 @@ scorepilot/
 │  ├─ (auth)/
 │  │  ├─ login/page.tsx
 │  │  └─ signup/page.tsx
-│  ├─ dashboard/page.tsx
-│  ├─ grades/page.tsx
-│  ├─ analytics/page.tsx
-│  ├─ calendar/page.tsx
-│  └─ layout.tsx
+│  ├─ (main)/
+│  │  ├─ dashboard/page.tsx
+│  │  ├─ grades/page.tsx
+│  │  ├─ analytics/page.tsx
+│  │  └─ calendar/page.tsx
+│  ├─ layout.tsx
+│  └─ page.tsx            (랜딩 페이지)
 ├─ components/
-│  ├─ ui/              (shadcn/ui 컴포넌트)
-│  ├─ GradeChart.tsx
-│  ├─ GradeForm.tsx
-│  └─ CalendarView.tsx
+│  ├─ ui/                 (shadcn/ui 컴포넌트)
+│  ├─ grades/             (성적 관련 컴포넌트)
+│  └─ layout/             (Nav, LogoutButton 등)
 ├─ lib/
-│  └─ supabase.ts      (Supabase 클라이언트)
+│  ├─ actions/            (Server Actions)
+│  ├─ constants/          (공유 상수/타입)
+│  └─ supabase/           (브라우저/서버 클라이언트)
 ├─ types/
 │  └─ index.ts
 └─ .env.local
@@ -186,29 +187,35 @@ npx vercel
 
 **기반**
 - [x] 기획 및 화면 설계
-- [x] DB 설계 (테이블 및 관계 정의)
+- [x] DB 설계 (14개 테이블 + RLS)
 
-**셋팅**
-- [ ] Next.js 프로젝트 생성
-- [ ] Supabase 프로젝트 생성 및 라이브러리 설치
-- [ ] Supabase 연결 파일 생성
-- [ ] RLS 설정
+**셋팅 (Phase 1)**
+- [x] Next.js 프로젝트 생성 (TypeScript, Tailwind, App Router)
+- [x] Supabase 프로젝트 생성 및 라이브러리 설치
+- [x] Supabase 연결 파일 생성 (브라우저/서버 분리)
+- [x] RLS 설정
 
-**로그인 / 회원가입**
-- [ ] shadcn/ui 설치
-- [ ] 로그인 / 회원가입 구현
-- [ ] 로그인 여부 확인 (세션 처리)
+**로그인 / 회원가입 (Phase 2)**
+- [x] shadcn/ui 설치
+- [x] 로그인 / 회원가입 구현 (이름, 학교 구분 포함)
+- [x] 미들웨어 기반 라우트 보호
 
-**Main**
-- [ ] 대시보드 제작
-- [ ] 성적 입력 및 관리 기능
-- [ ] 성적 추이 그래프
-- [ ] 학업 캘린더
-- [ ] 성적 분석 및 학습 전략 제공
-- [ ] AI 성적 예측 기능
-- [ ] UI 정리 및 반응형 대응
+**랜딩 페이지 (Phase 3)**
+- [x] 서비스 소개 + 로그인/회원가입 유도
 
-**배포**
+**성적 관리 (Phase 4)**
+- [x] 성적 입력 / 삭제 (Server Actions)
+- [x] 성적 목록 테이블
+
+**Main (진행 중)**
+- [ ] 성적 추이 그래프 (Phase 5)
+- [ ] 성적 분석 및 학습 전략 제공 (Phase 6)
+- [ ] AI 성적 예측 기능 (Phase 7)
+- [ ] 학업 캘린더 (Phase 8)
+- [ ] 대시보드 제작 (Phase 9)
+- [ ] UI 정리 및 반응형 대응 (Phase 10)
+
+**배포 (Phase 11)**
 - [ ] Vercel 배포
 
 ---
