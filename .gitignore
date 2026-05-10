@@ -78,6 +78,7 @@ desktop.ini
 *.jpg
 *.jpeg
 *.png
+!Scorepilot_logo.png
 *.txt
 *.docx
 !public/**
