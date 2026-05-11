@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import GradeChart from "@/components/analytics/GradeChart";
+import PredictionSection from "@/components/analytics/PredictionSection";
 
 type Row = {
   exam_date: string;
@@ -96,16 +97,30 @@ export default async function AnalyticsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const { data: rows } = await supabase
-    .from("exams")
-    .select(`
-      exam_date,
-      exam_type,
-      subjects ( name ),
-      grade_records ( percentage )
-    `)
-    .eq("user_id", user!.id)
-    .order("exam_date", { ascending: true });
+  const [{ data: rows }, { data: predRows }] = await Promise.all([
+    supabase
+      .from("exams")
+      .select(`
+        exam_date,
+        exam_type,
+        subjects ( name ),
+        grade_records ( percentage )
+      `)
+      .eq("user_id", user!.id)
+      .order("exam_date", { ascending: true }),
+    supabase
+      .from("score_predictions")
+      .select(`
+        predicted_score,
+        prediction_target,
+        confidence,
+        basis,
+        created_at,
+        subjects ( name )
+      `)
+      .eq("user_id", user!.id)
+      .order("created_at", { ascending: false }),
+  ]);
 
   const validRows = (rows as Row[] ?? []).flatMap((r) => {
     const pct = r.grade_records[0]?.percentage;
@@ -122,6 +137,20 @@ export default async function AnalyticsPage() {
   const assignment = buildChartData(assignmentRows);
 
   const subjectStats = computeSubjectStats(validRows);
+
+  const predictions = (predRows ?? []).map((r) => {
+    const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    return {
+      subject_name: sub?.name ?? "",
+      predicted_score: Number(r.predicted_score),
+      prediction_target: r.prediction_target,
+      confidence: Number(r.confidence),
+      basis: r.basis,
+      created_at: r.created_at,
+    };
+  }).filter((p) => p.subject_name);
+
+  const subjectAvgs = subjectStats.map((s) => ({ subject: s.subject, avg: s.avg }));
 
   const weakSubjects = subjectStats.filter((s) => s.level === "weak");
   const downSubjects = subjectStats.filter((s) => s.trend === "down");
@@ -217,6 +246,9 @@ export default async function AnalyticsPage() {
           )}
         </>
       )}
+
+      {/* AI Prediction */}
+      <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
     </div>
   );
 }
