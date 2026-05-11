@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { commonSubjects } from "@/lib/constants/grades";
-import { addSchedule, deleteSchedule, toggleScheduleComplete } from "@/lib/actions/calendar";
+import { addSchedule, updateSchedule, deleteSchedule, toggleScheduleComplete } from "@/lib/actions/calendar";
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -164,12 +164,124 @@ function AddScheduleDialog({
   );
 }
 
-function EventDetailDialog({
+function EditScheduleDialog({
   event,
+  subjects,
   onClose,
 }: {
   event: CalendarEvent;
+  subjects: string[];
   onClose: () => void;
+}) {
+  const [state, action, pending] = useActionState(updateSchedule, null);
+
+  const initSubjectMode = (): "none" | "select" | "custom" => {
+    if (!event.subjectName) return "none";
+    const opts = [...new Set([...commonSubjects, ...subjects])];
+    return opts.includes(event.subjectName) ? "select" : "custom";
+  };
+
+  const [subjectMode, setSubjectMode] = useState<"none" | "select" | "custom">(initSubjectMode);
+  const [selectedSubject, setSelectedSubject] = useState(
+    initSubjectMode() === "select" ? (event.subjectName ?? "") : ""
+  );
+  const [customSubject, setCustomSubject] = useState(
+    initSubjectMode() === "custom" ? (event.subjectName ?? "") : ""
+  );
+
+  useEffect(() => {
+    if (state?.success) onClose();
+  }, [state]);
+
+  const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
+  const subjectName =
+    subjectMode === "select" ? selectedSubject : subjectMode === "custom" ? customSubject : "";
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>일정 수정</DialogTitle>
+        </DialogHeader>
+        <form action={action} className="space-y-4 mt-2">
+          <input type="hidden" name="schedule_id" value={event.id} />
+          <input type="hidden" name="subject_name" value={subjectName} />
+          <div className="space-y-2">
+            <Label htmlFor="edit-title">제목</Label>
+            <Input id="edit-title" name="title" defaultValue={event.title} required autoFocus />
+          </div>
+          <div className="space-y-2">
+            <Label>일정 종류</Label>
+            <select name="event_type" defaultValue={event.eventType} className={selectClass}>
+              {SCHEDULE_EVENT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-date">날짜</Label>
+            <Input id="edit-date" name="start_date" type="date" defaultValue={event.date} required />
+          </div>
+          <div className="space-y-2">
+            <Label>과목 (선택)</Label>
+            <select
+              value={
+                subjectMode === "none" ? "" : subjectMode === "custom" ? "__custom__" : selectedSubject
+              }
+              onChange={(e) => {
+                if (!e.target.value) {
+                  setSubjectMode("none");
+                } else if (e.target.value === "__custom__") {
+                  setSubjectMode("custom");
+                  setSelectedSubject("");
+                } else {
+                  setSubjectMode("select");
+                  setSelectedSubject(e.target.value);
+                }
+              }}
+              className={selectClass}
+            >
+              <option value="">과목 없음</option>
+              {subjectOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+              <option value="__custom__">직접 입력...</option>
+            </select>
+            {subjectMode === "custom" && (
+              <Input
+                placeholder="과목명 입력"
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+              />
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-desc">메모 (선택)</Label>
+            <Input
+              id="edit-desc"
+              name="description"
+              placeholder="범위, 준비사항 등"
+              defaultValue={event.description ?? ""}
+            />
+          </div>
+          {state?.error && <p className="text-sm text-red-500">{state.error}</p>}
+          <Button type="submit" className="w-full" disabled={pending}>
+            {pending ? "저장 중..." : "저장"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EventDetailDialog({
+  event,
+  onClose,
+  onEdit,
+}: {
+  event: CalendarEvent;
+  onClose: () => void;
+  onEdit: () => void;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -267,6 +379,9 @@ function EventDetailDialog({
                 <Check className="w-3.5 h-3.5 mr-1" />
                 {event.isCompleted ? "완료 취소" : "완료"}
               </Button>
+              <Button variant="outline" size="sm" onClick={onEdit} disabled={pending}>
+                수정
+              </Button>
               <Button variant="destructive" size="sm" onClick={handleDelete} disabled={pending}>
                 삭제
               </Button>
@@ -290,6 +405,7 @@ export default function CalendarView({
   const [month, setMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
@@ -369,7 +485,7 @@ export default function CalendarView({
           <div className="grid grid-cols-7 divide-x divide-y">
             {cells.map((day, i) => {
               if (!day) {
-                return <div key={i} className="min-h-[96px] bg-muted/10" />;
+                return <div key={i} className="min-h-[96px] bg-muted/10 overflow-hidden" />;
               }
               const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const dayEvents = eventsByDate.get(dateStr) ?? [];
@@ -378,7 +494,7 @@ export default function CalendarView({
               const isSat = i % 7 === 6;
 
               return (
-                <div key={i} className="min-h-[96px] p-1.5 space-y-1 bg-white group">
+                <div key={i} className="min-h-[96px] p-1.5 space-y-1 bg-white group overflow-hidden">
                   <div className="flex items-center justify-between">
                     <span
                       className={cn(
@@ -519,6 +635,17 @@ export default function CalendarView({
         <EventDetailDialog
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
+          onEdit={() => {
+            setEditingEvent(selectedEvent);
+            setSelectedEvent(null);
+          }}
+        />
+      )}
+      {editingEvent !== null && (
+        <EditScheduleDialog
+          event={editingEvent}
+          subjects={subjects}
+          onClose={() => setEditingEvent(null)}
         />
       )}
     </>

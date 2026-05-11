@@ -21,6 +21,8 @@ import {
 const selectClass =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
+const todayStr = () => new Date().toLocaleDateString("en-CA");
+
 const INITIAL = {
   subjectMode: "select" as "select" | "custom",
   selectedSubject: "",
@@ -28,7 +30,6 @@ const INITIAL = {
   examType: "midterm",
   score: "",
   maxScore: "100",
-  examDate: "",
   memo: "",
 };
 
@@ -41,7 +42,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
   const [examType, setExamType] = useState(INITIAL.examType);
   const [score, setScore] = useState(INITIAL.score);
   const [maxScore, setMaxScore] = useState(INITIAL.maxScore);
-  const [examDate, setExamDate] = useState(INITIAL.examDate);
+  const [examDate, setExamDate] = useState(() => todayStr());
   const [memo, setMemo] = useState(INITIAL.memo);
 
   useEffect(() => {
@@ -53,7 +54,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
       setExamType(INITIAL.examType);
       setScore(INITIAL.score);
       setMaxScore(INITIAL.maxScore);
-      setExamDate(INITIAL.examDate);
+      setExamDate(todayStr());
       setMemo(INITIAL.memo);
     }
   }, [state]);
