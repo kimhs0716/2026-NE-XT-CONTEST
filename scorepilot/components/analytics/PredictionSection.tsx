@@ -142,7 +142,7 @@ export default function PredictionSection({
       )}
 
       {predictions.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-4 text-right">
+        <p className="text-xs text-muted-foreground mt-4 text-right" suppressHydrationWarning>
           마지막 업데이트: {new Date(predictions[0].created_at).toLocaleString("ko-KR")}
         </p>
       )}
