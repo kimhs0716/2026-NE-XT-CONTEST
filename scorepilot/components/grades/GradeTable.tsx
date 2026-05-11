@@ -92,7 +92,23 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
               </span>
             </TableCell>
             <TableCell>{g.date}</TableCell>
-            <TableCell className="text-muted-foreground text-sm">{g.memo ?? "-"}</TableCell>
+            <TableCell className="text-muted-foreground text-sm">
+              {g.memo ? (
+                <div className="relative group/memo inline-block cursor-default">
+                  <span className="underline decoration-dotted underline-offset-2">
+                    {g.memo.length > 10 ? g.memo.slice(0, 10) + "…" : g.memo}
+                  </span>
+                  <div className="pointer-events-none absolute bottom-full left-0 mb-2 z-50 opacity-0 group-hover/memo:opacity-100 transition-opacity duration-100 w-max max-w-[220px] rounded-lg border bg-white shadow-lg px-3 py-2.5 text-xs text-foreground">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">메모</p>
+                    <p className="leading-relaxed whitespace-pre-wrap">{g.memo}</p>
+                    <span className="absolute top-full left-4 border-4 border-transparent border-t-border" />
+                    <span className="absolute top-full left-4 mt-[-1px] border-4 border-transparent border-t-white" />
+                  </div>
+                </div>
+              ) : (
+                "-"
+              )}
+            </TableCell>
             <TableCell>
               <div className="flex items-center gap-1">
                 <GradeEditForm grade={g} subjects={subjects} />

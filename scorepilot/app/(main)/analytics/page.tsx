@@ -174,7 +174,7 @@ export default async function AnalyticsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">성적 분석</h1>
         <p className="text-muted-foreground text-sm mt-1">

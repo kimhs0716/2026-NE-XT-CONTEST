@@ -98,7 +98,7 @@ function AddScheduleDialog({
         <form action={action} className="space-y-4 mt-2">
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
-            <Label htmlFor="sched-title">제목</Label>
+            <Label htmlFor="sched-title">제목<span className="text-red-500">*</span></Label>
             <Input id="sched-title" name="title" placeholder="예: 수학 중간고사" required autoFocus />
           </div>
           <div className="space-y-2">
@@ -110,7 +110,7 @@ function AddScheduleDialog({
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="sched-date">날짜</Label>
+            <Label htmlFor="sched-date">날짜<span className="text-red-500">*</span></Label>
             <Input id="sched-date" name="start_date" type="date" defaultValue={date} required />
           </div>
           <div className="space-y-2">
@@ -207,7 +207,7 @@ function EditScheduleDialog({
           <input type="hidden" name="schedule_id" value={event.id} />
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
-            <Label htmlFor="edit-title">제목</Label>
+            <Label htmlFor="edit-title">제목<span className="text-red-500">*</span></Label>
             <Input id="edit-title" name="title" defaultValue={event.title} required autoFocus />
           </div>
           <div className="space-y-2">
@@ -219,7 +219,7 @@ function EditScheduleDialog({
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-date">날짜</Label>
+            <Label htmlFor="edit-date">날짜<span className="text-red-500">*</span></Label>
             <Input id="edit-date" name="start_date" type="date" defaultValue={event.date} required />
           </div>
           <div className="space-y-2">
@@ -406,6 +406,12 @@ export default function CalendarView({
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [tooltip, setTooltip] = useState<{ event: CalendarEvent; x: number; y: number } | null>(null);
+
+  function handlePillEnter(e: React.MouseEvent<HTMLButtonElement>, ev: CalendarEvent) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTooltip({ event: ev, x: rect.left, y: rect.bottom + 6 });
+  }
 
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
@@ -434,6 +440,9 @@ export default function CalendarView({
   const cells: (number | null)[] = Array(firstDay).fill(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
+
+  const weeks: (number | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   const monthEvents = events
     .filter((e) => e.date.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`))
@@ -466,97 +475,108 @@ export default function CalendarView({
           </div>
         </div>
 
-        {/* Calendar grid — single unified grid so header and cells share identical column widths */}
+        {/* Calendar grid — flex rows with explicit 1/7 widths guarantee equal columns */}
         <div className="rounded-xl border overflow-hidden w-full">
-          <div className="grid grid-cols-7 w-full">
-            {/* Weekday headers */}
-            {WEEKDAYS.map((d, i) => (
+          {/* Weekday headers */}
+          <div className="flex w-full border-b">
+            {WEEKDAYS.map((d, colIdx) => (
               <div
-                key={`h-${d}`}
+                key={d}
+                style={{ width: `${100 / 7}%` }}
                 className={cn(
-                  "bg-muted/30 text-center py-2.5 text-xs font-medium border-b",
-                  i < 6 && "border-r",
-                  i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground",
+                  "flex-none bg-muted/30 text-center py-2.5 text-xs font-medium",
+                  colIdx < 6 && "border-r",
+                  colIdx === 0 ? "text-red-500" : colIdx === 6 ? "text-blue-500" : "text-muted-foreground",
                 )}
               >
                 {d}
               </div>
             ))}
-
-            {/* Day cells */}
-            {cells.map((day, i) => {
-              const col = i % 7;
-              const totalRows = Math.ceil(cells.length / 7);
-              const row = Math.floor(i / 7);
-              const isLastRow = row === totalRows - 1;
-              const isLastCol = col === 6;
-              const cellBorder = cn(!isLastRow && "border-b", !isLastCol && "border-r");
-
-              if (!day) {
-                return (
-                  <div key={i} className={cn("min-h-[96px] bg-muted/10 overflow-hidden", cellBorder)} />
-                );
-              }
-
-              const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const dayEvents = eventsByDate.get(dateStr) ?? [];
-              const isToday = dateStr === todayStr;
-              const isSun = col === 0;
-              const isSat = col === 6;
-
-              return (
-                <div key={i} className={cn("min-h-[96px] p-1.5 space-y-1 bg-white group overflow-hidden", cellBorder)}>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={cn(
-                        "inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium",
-                        isToday
-                          ? "bg-primary text-primary-foreground font-bold"
-                          : isSun
-                          ? "text-red-500"
-                          : isSat
-                          ? "text-blue-500"
-                          : "text-foreground",
-                      )}
-                    >
-                      {day}
-                    </span>
-                    <button
-                      onClick={() => setSelectedDate(dateStr)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {dayEvents.slice(0, 2).map((e, j) => (
-                    <button
-                      key={j}
-                      onClick={() => setSelectedEvent(e)}
-                      title={`${e.title}${e.percentage !== null ? ` (${e.percentage.toFixed(1)}%)` : ""}`}
-                      className={cn(
-                        "w-full text-left text-xs truncate rounded px-1 py-0.5",
-                        e.isCompleted && !e.isGrade ? "opacity-60 line-through" : "",
-                        EVENT_TYPE_PILL[e.eventType] ?? "bg-gray-100 text-gray-600",
-                      )}
-                    >
-                      {e.title}
-                      {e.isGrade && e.percentage !== null && (
-                        <span className="ml-1 font-medium">{Math.round(e.percentage)}%</span>
-                      )}
-                    </button>
-                  ))}
-                  {dayEvents.length > 2 && (
-                    <button
-                      onClick={() => setSelectedDate(dateStr)}
-                      className="text-xs text-muted-foreground px-1 hover:text-foreground"
-                    >
-                      +{dayEvents.length - 2}개 더
-                    </button>
-                  )}
-                </div>
-              );
-            })}
           </div>
+
+          {/* Week rows */}
+          {weeks.map((week, rowIdx) => (
+            <div key={rowIdx} className="flex w-full">
+              {week.map((day, colIdx) => {
+                const isLastRow = rowIdx === weeks.length - 1;
+                const isLastCol = colIdx === 6;
+                const isSun = colIdx === 0;
+                const isSat = colIdx === 6;
+                const cellBorder = cn(!isLastRow && "border-b", !isLastCol && "border-r");
+
+                if (!day) {
+                  return (
+                    <div
+                      key={colIdx}
+                      style={{ width: `${100 / 7}%` }}
+                      className={cn("flex-none min-h-[140px] bg-muted/10", cellBorder)}
+                    />
+                  );
+                }
+
+                const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const dayEvents = eventsByDate.get(dateStr) ?? [];
+                const isToday = dateStr === todayStr;
+
+                return (
+                  <div
+                    key={colIdx}
+                    style={{ width: `${100 / 7}%` }}
+                    className={cn("flex-none min-h-[140px] p-1.5 space-y-1 bg-white group", cellBorder)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={cn(
+                          "inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium",
+                          isToday
+                            ? "bg-primary text-primary-foreground font-bold"
+                            : isSun
+                            ? "text-red-500"
+                            : isSat
+                            ? "text-blue-500"
+                            : "text-foreground",
+                        )}
+                      >
+                        {day}
+                      </span>
+                      <button
+                        onClick={() => setSelectedDate(dateStr)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {dayEvents.slice(0, 3).map((e, j) => (
+                      <button
+                        key={j}
+                        onClick={() => setSelectedEvent(e)}
+                        onMouseEnter={(ev) => handlePillEnter(ev, e)}
+                        onMouseLeave={() => setTooltip(null)}
+                        className={cn(
+                          "w-full text-left text-xs truncate rounded px-1 py-0.5",
+                          e.isCompleted && !e.isGrade ? "opacity-60 line-through" : "",
+                          EVENT_TYPE_PILL[e.eventType] ?? "bg-gray-100 text-gray-600",
+                        )}
+                      >
+                        {e.title}
+                        {e.isGrade && e.percentage !== null && (
+                          <span className="ml-1 font-medium">{Math.round(e.percentage)}%</span>
+                        )}
+                      </button>
+                    ))}
+                    {dayEvents.length > 3 && (
+                      <button
+                        onClick={() => setSelectedDate(dateStr)}
+                        className="text-xs text-muted-foreground px-1 hover:text-foreground"
+                      >
+                        +{dayEvents.length - 3}개 더
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
 
         {/* Month event list */}
@@ -570,6 +590,8 @@ export default function CalendarView({
                 <button
                   key={i}
                   onClick={() => setSelectedEvent(e)}
+                  onMouseEnter={(ev) => handlePillEnter(ev, e)}
+                  onMouseLeave={() => setTooltip(null)}
                   className="w-full text-left flex items-center justify-between text-sm py-2 border-b last:border-0 hover:bg-muted/30 rounded px-1 transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -658,6 +680,37 @@ export default function CalendarView({
           subjects={subjects}
           onClose={() => setEditingEvent(null)}
         />
+      )}
+
+      {/* Hover tooltip — fixed so it escapes any overflow-hidden container */}
+      {tooltip && (
+        <div
+          style={{ top: tooltip.y, left: tooltip.x }}
+          className="fixed z-[200] pointer-events-none max-w-[220px] rounded-lg border bg-white shadow-lg px-3 py-2.5 text-xs space-y-1.5"
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn("px-1.5 py-0.5 rounded font-medium", EVENT_TYPE_PILL[tooltip.event.eventType] ?? "bg-gray-100 text-gray-600")}>
+              {EVENT_TYPE_LABEL[tooltip.event.eventType] ?? tooltip.event.eventType}
+            </span>
+            {tooltip.event.isGrade && tooltip.event.percentage !== null && (
+              <span className={cn("font-semibold ml-auto", tooltip.event.percentage >= 80 ? "text-green-600" : tooltip.event.percentage >= 60 ? "text-yellow-600" : "text-red-500")}>
+                {tooltip.event.percentage.toFixed(1)}%
+              </span>
+            )}
+            {!tooltip.event.isGrade && (
+              <span className={cn("text-xs ml-auto", tooltip.event.isCompleted ? "text-green-600 font-medium" : "text-muted-foreground")}>
+                {tooltip.event.isCompleted ? "✓ 완료" : "예정"}
+              </span>
+            )}
+          </div>
+          <p className="font-semibold text-foreground leading-snug">{tooltip.event.title}</p>
+          {tooltip.event.subjectName && (
+            <p className="text-muted-foreground">{tooltip.event.subjectName}</p>
+          )}
+          {tooltip.event.description && (
+            <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{tooltip.event.description}</p>
+          )}
+        </div>
       )}
     </>
   );

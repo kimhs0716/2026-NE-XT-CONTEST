@@ -72,7 +72,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
         <form action={action} className="space-y-4 mt-2">
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
-            <Label>과목명</Label>
+            <Label>과목명<span className="text-red-500">*</span></Label>
             <select
               value={subjectMode === "custom" ? "__custom__" : selectedSubject}
               onChange={(e) => {
@@ -102,7 +102,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="exam_type">시험 종류</Label>
+            <Label htmlFor="exam_type">시험 종류<span className="text-red-500">*</span></Label>
             <select
               id="exam_type"
               name="exam_type"
@@ -123,7 +123,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="score">점수</Label>
+              <Label htmlFor="score">점수<span className="text-red-500">*</span></Label>
               <Input
                 id="score"
                 name="score"
@@ -150,7 +150,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="exam_date">날짜</Label>
+            <Label htmlFor="exam_date">날짜<span className="text-red-500">*</span></Label>
             <Input
               id="exam_date"
               name="exam_date"

@@ -67,7 +67,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
           <input type="hidden" name="exam_id" value={grade.examId} />
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
-            <Label>과목명</Label>
+            <Label>과목명<span className="text-red-500">*</span></Label>
             <select
               value={subjectMode === "custom" ? "__custom__" : selectedSubject}
               onChange={(e) => {
@@ -97,7 +97,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit_exam_type">시험 종류</Label>
+            <Label htmlFor="edit_exam_type">시험 종류<span className="text-red-500">*</span></Label>
             <select
               id="edit_exam_type"
               name="exam_type"
@@ -118,7 +118,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="edit_score">점수</Label>
+              <Label htmlFor="edit_score">점수<span className="text-red-500">*</span></Label>
               <Input
                 id="edit_score"
                 name="score"
@@ -144,7 +144,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit_exam_date">날짜</Label>
+            <Label htmlFor="edit_exam_date">날짜<span className="text-red-500">*</span></Label>
             <Input
               id="edit_exam_date"
               name="exam_date"

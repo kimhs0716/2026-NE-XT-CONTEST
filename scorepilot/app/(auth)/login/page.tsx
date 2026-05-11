@@ -28,7 +28,7 @@ export default function LoginPage() {
       <CardContent>
         <form action={action} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">이메일</Label>
+            <Label htmlFor="email">이메일<span className="text-red-500">*</span></Label>
             <Input
               id="email"
               name="email"
@@ -40,7 +40,7 @@ export default function LoginPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">비밀번호</Label>
+            <Label htmlFor="password">비밀번호<span className="text-red-500">*</span></Label>
             <Input
               id="password"
               name="password"
