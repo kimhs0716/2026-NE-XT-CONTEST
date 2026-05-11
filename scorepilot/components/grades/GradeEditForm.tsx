@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState, useState, useEffect } from "react";
-import { addGrade } from "@/lib/actions/grades";
+import { useActionState, useEffect, useState } from "react";
+import { updateGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
   commonSubjects,
+  type ExamType,
 } from "@/lib/constants/grades";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,54 +22,49 @@ import {
 const selectClass =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
-const INITIAL = {
-  subjectMode: "select" as "select" | "custom",
-  selectedSubject: "",
-  customSubject: "",
-  examType: "midterm",
-  score: "",
-  maxScore: "100",
-  examDate: "",
-  memo: "",
+type Grade = {
+  examId: string;
+  subject: string;
+  examType: ExamType;
+  score: number;
+  maxScore: number;
+  date: string;
+  memo: string | null;
 };
 
-export default function GradeForm({ subjects }: { subjects: string[] }) {
-  const [state, action, pending] = useActionState(addGrade, null);
+export default function GradeEditForm({ grade, subjects }: { grade: Grade; subjects: string[] }) {
+  const [state, action, pending] = useActionState(updateGrade, null);
   const [open, setOpen] = useState(false);
-  const [subjectMode, setSubjectMode] = useState(INITIAL.subjectMode);
-  const [selectedSubject, setSelectedSubject] = useState(INITIAL.selectedSubject);
-  const [customSubject, setCustomSubject] = useState(INITIAL.customSubject);
-  const [examType, setExamType] = useState(INITIAL.examType);
-  const [score, setScore] = useState(INITIAL.score);
-  const [maxScore, setMaxScore] = useState(INITIAL.maxScore);
-  const [examDate, setExamDate] = useState(INITIAL.examDate);
-  const [memo, setMemo] = useState(INITIAL.memo);
-
-  useEffect(() => {
-    if (state?.success) {
-      setOpen(false);
-      setSubjectMode(INITIAL.subjectMode);
-      setSelectedSubject(INITIAL.selectedSubject);
-      setCustomSubject(INITIAL.customSubject);
-      setExamType(INITIAL.examType);
-      setScore(INITIAL.score);
-      setMaxScore(INITIAL.maxScore);
-      setExamDate(INITIAL.examDate);
-      setMemo(INITIAL.memo);
-    }
-  }, [state]);
 
   const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
+  const isKnown = subjectOptions.includes(grade.subject);
+
+  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(
+    isKnown ? "select" : "custom"
+  );
+  const [selectedSubject, setSelectedSubject] = useState(isKnown ? grade.subject : "");
+  const [customSubject, setCustomSubject] = useState(isKnown ? "" : grade.subject);
+  const [examType, setExamType] = useState(grade.examType);
+  const [score, setScore] = useState(String(grade.score));
+  const [maxScore, setMaxScore] = useState(String(grade.maxScore));
+  const [examDate, setExamDate] = useState(grade.date);
+  const [memo, setMemo] = useState(grade.memo ?? "");
+
+  useEffect(() => {
+    if (state?.success) setOpen(false);
+  }, [state]);
+
   const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => setOpen(isOpen)}>
-      <DialogTrigger render={<Button>+ 성적 추가</Button>} />
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button variant="ghost" size="sm">수정</Button>} />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>성적 추가</DialogTitle>
+          <DialogTitle>성적 수정</DialogTitle>
         </DialogHeader>
         <form action={action} className="space-y-4 mt-2">
+          <input type="hidden" name="exam_id" value={grade.examId} />
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
             <Label>과목명</Label>
@@ -101,12 +97,12 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="exam_type">시험 종류</Label>
+            <Label htmlFor="edit_exam_type">시험 종류</Label>
             <select
-              id="exam_type"
+              id="edit_exam_type"
               name="exam_type"
               value={examType}
-              onChange={(e) => setExamType(e.target.value)}
+              onChange={(e) => setExamType(e.target.value as ExamType)}
               className={selectClass}
             >
               {examTypeGroups.map((group) => (
@@ -122,23 +118,22 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="score">점수</Label>
+              <Label htmlFor="edit_score">점수</Label>
               <Input
-                id="score"
+                id="edit_score"
                 name="score"
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="85"
                 value={score}
                 onChange={(e) => setScore(e.target.value)}
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="max_score">만점</Label>
+              <Label htmlFor="edit_max_score">만점</Label>
               <Input
-                id="max_score"
+                id="edit_max_score"
                 name="max_score"
                 type="number"
                 min="1"
@@ -149,9 +144,9 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="exam_date">날짜</Label>
+            <Label htmlFor="edit_exam_date">날짜</Label>
             <Input
-              id="exam_date"
+              id="edit_exam_date"
               name="exam_date"
               type="date"
               value={examDate}
@@ -160,11 +155,10 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="memo">메모 (선택)</Label>
+            <Label htmlFor="edit_memo">메모 (선택)</Label>
             <Input
-              id="memo"
+              id="edit_memo"
               name="memo"
-              placeholder="범위: 1~3단원"
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
             />

@@ -7,17 +7,26 @@ export default async function GradesPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const { data: rows } = await supabase
-    .from("exams")
-    .select(`
-      id,
-      exam_type,
-      exam_date,
-      subjects ( name ),
-      grade_records ( score, max_score, percentage, memo )
-    `)
-    .eq("user_id", user!.id)
-    .order("exam_date", { ascending: false });
+  const [{ data: rows }, { data: subjectRows }] = await Promise.all([
+    supabase
+      .from("exams")
+      .select(`
+        id,
+        exam_type,
+        exam_date,
+        subjects ( name ),
+        grade_records ( score, max_score, percentage, memo )
+      `)
+      .eq("user_id", user!.id)
+      .order("exam_date", { ascending: false }),
+    supabase
+      .from("subjects")
+      .select("name")
+      .eq("user_id", user!.id)
+      .order("name"),
+  ]);
+
+  const subjectNames = subjectRows?.map((s) => s.name) ?? [];
 
   type Row = {
     id: string;
@@ -54,9 +63,9 @@ export default async function GradesPage() {
             과목별 시험 성적을 기록하고 관리하세요
           </p>
         </div>
-        <GradeForm />
+        <GradeForm subjects={subjectNames} />
       </div>
-      <GradeTable grades={grades} />
+      <GradeTable grades={grades} subjects={subjectNames} />
     </div>
   );
 }

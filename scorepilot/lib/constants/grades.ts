@@ -7,3 +7,23 @@ export const examTypeLabels: Record<ExamType, string> = {
   mock_exam: "모의고사",
   other: "기타",
 };
+
+export const examTypeGroups = [
+  {
+    label: "시험",
+    types: ["midterm", "final", "mock_exam"] as ExamType[],
+  },
+  {
+    label: "수행평가",
+    types: ["assignment"] as ExamType[],
+  },
+  {
+    label: "기타",
+    types: ["other"] as ExamType[],
+  },
+];
+
+export const commonSubjects = [
+  "국어", "수학", "영어", "과학", "사회", "역사",
+  "도덕", "체육", "음악", "미술", "기술가정", "정보",
+];
