@@ -3,6 +3,19 @@
 import { useTransition } from "react";
 import { deleteGrade } from "@/lib/actions/grades";
 import { examTypeLabels, type ExamType } from "@/lib/constants/grades";
+
+const SUBJECT_COLORS = [
+  "#2563eb", "#16a34a", "#dc2626", "#d97706",
+  "#9333ea", "#0891b2", "#db2777", "#65a30d",
+];
+
+const examTypeBadgeClass: Record<ExamType, string> = {
+  midterm:    "bg-blue-100 text-blue-700 hover:bg-blue-100",
+  final:      "bg-violet-100 text-violet-700 hover:bg-violet-100",
+  mock_exam:  "bg-orange-100 text-orange-700 hover:bg-orange-100",
+  assignment: "bg-green-100 text-green-700 hover:bg-green-100",
+  other:      "bg-gray-100 text-gray-600 hover:bg-gray-100",
+};
 import {
   Table,
   TableBody,
@@ -13,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import GradeEditForm from "@/components/grades/GradeEditForm";
 
 type GradeRow = {
   examId: string;
@@ -25,8 +39,11 @@ type GradeRow = {
   memo: string | null;
 };
 
-export default function GradeTable({ grades }: { grades: GradeRow[] }) {
+export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; subjects: string[] }) {
   const [isPending, startTransition] = useTransition();
+  const uniqueSubjects = [...new Set(grades.map((g) => g.subject))];
+  const subjectColor = (name: string) =>
+    SUBJECT_COLORS[uniqueSubjects.indexOf(name) % SUBJECT_COLORS.length];
 
   if (grades.length === 0) {
     return (
@@ -52,9 +69,17 @@ export default function GradeTable({ grades }: { grades: GradeRow[] }) {
       <TableBody>
         {grades.map((g) => (
           <TableRow key={g.examId}>
-            <TableCell className="font-medium">{g.subject}</TableCell>
+            <TableCell className="font-medium">
+              <span className="flex items-center gap-2">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: subjectColor(g.subject) }}
+                />
+                {g.subject}
+              </span>
+            </TableCell>
             <TableCell>
-              <Badge variant="secondary">
+              <Badge className={examTypeBadgeClass[g.examType]}>
                 {examTypeLabels[g.examType]}
               </Badge>
             </TableCell>
@@ -69,15 +94,18 @@ export default function GradeTable({ grades }: { grades: GradeRow[] }) {
             <TableCell>{g.date}</TableCell>
             <TableCell className="text-muted-foreground text-sm">{g.memo ?? "-"}</TableCell>
             <TableCell>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={isPending}
-                onClick={() => startTransition(() => { void deleteGrade(g.examId) })}
-                className="text-red-500 hover:text-red-600"
-              >
-                삭제
-              </Button>
+              <div className="flex items-center gap-1">
+                <GradeEditForm grade={g} subjects={subjects} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => startTransition(() => { void deleteGrade(g.examId) })}
+                  className="text-red-500 hover:text-red-600"
+                >
+                  삭제
+                </Button>
+              </div>
             </TableCell>
           </TableRow>
         ))}
