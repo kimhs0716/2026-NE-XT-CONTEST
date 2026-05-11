@@ -466,35 +466,46 @@ export default function CalendarView({
           </div>
         </div>
 
-        {/* Calendar grid */}
-        <div className="rounded-xl border overflow-hidden">
-          <div className="grid grid-cols-7 border-b bg-muted/30">
+        {/* Calendar grid — single unified grid so header and cells share identical column widths */}
+        <div className="rounded-xl border overflow-hidden w-full">
+          <div className="grid grid-cols-7 w-full">
+            {/* Weekday headers */}
             {WEEKDAYS.map((d, i) => (
               <div
-                key={d}
+                key={`h-${d}`}
                 className={cn(
-                  "text-center py-2.5 text-xs font-medium",
+                  "bg-muted/30 text-center py-2.5 text-xs font-medium border-b",
+                  i < 6 && "border-r",
                   i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground",
                 )}
               >
                 {d}
               </div>
             ))}
-          </div>
 
-          <div className="grid grid-cols-7 divide-x divide-y">
+            {/* Day cells */}
             {cells.map((day, i) => {
+              const col = i % 7;
+              const totalRows = Math.ceil(cells.length / 7);
+              const row = Math.floor(i / 7);
+              const isLastRow = row === totalRows - 1;
+              const isLastCol = col === 6;
+              const cellBorder = cn(!isLastRow && "border-b", !isLastCol && "border-r");
+
               if (!day) {
-                return <div key={i} className="min-h-[96px] bg-muted/10 overflow-hidden" />;
+                return (
+                  <div key={i} className={cn("min-h-[96px] bg-muted/10 overflow-hidden", cellBorder)} />
+                );
               }
+
               const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const dayEvents = eventsByDate.get(dateStr) ?? [];
               const isToday = dateStr === todayStr;
-              const isSun = i % 7 === 0;
-              const isSat = i % 7 === 6;
+              const isSun = col === 0;
+              const isSat = col === 6;
 
               return (
-                <div key={i} className="min-h-[96px] p-1.5 space-y-1 bg-white group overflow-hidden">
+                <div key={i} className={cn("min-h-[96px] p-1.5 space-y-1 bg-white group overflow-hidden", cellBorder)}>
                   <div className="flex items-center justify-between">
                     <span
                       className={cn(
