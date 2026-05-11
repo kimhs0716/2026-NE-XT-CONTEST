@@ -15,7 +15,7 @@ export const CHART_COLORS = [
   "#9333ea", "#0891b2", "#db2777", "#65a30d",
 ];
 
-type TooltipEntry = { name: string; value: number | null; color: string };
+type TooltipEntry = { name: string; value: number; color: string };
 
 function ChartTooltip({
   active,
@@ -27,12 +27,14 @@ function ChartTooltip({
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
-  const subjects = payload.filter((e) => e.name !== "전체 평균" && e.value != null);
+  const subjectEntries = payload.filter(
+    (e) => e.name !== "전체 평균" && e.value != null,
+  );
   const avg = payload.find((e) => e.name === "전체 평균");
   return (
     <div className="rounded-lg border bg-white px-3 py-2.5 shadow-md text-sm min-w-[160px]">
       <p className="font-semibold text-foreground mb-2">{label}</p>
-      {subjects.map((entry) => (
+      {subjectEntries.map((entry) => (
         <div key={entry.name} className="flex items-center gap-2 py-0.5">
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
@@ -44,7 +46,7 @@ function ChartTooltip({
           </span>
         </div>
       ))}
-      {avg?.value != null && subjects.length > 1 && (
+      {avg?.value != null && subjectEntries.length > 1 && (
         <div className="flex items-center gap-2 pt-1.5 mt-1 border-t">
           <span className="text-muted-foreground">전체 평균</span>
           <span className="ml-auto font-medium pl-4">
@@ -56,8 +58,10 @@ function ChartTooltip({
   );
 }
 
+type DataPoint = Record<string, string | number | null>;
+
 type Props = {
-  data: Record<string, string | number | null>[];
+  data: DataPoint[];
   subjects: string[];
   width?: number;
 };
@@ -80,7 +84,11 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
         margin={{ top: 5, right: 40, left: 0, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-        <XAxis dataKey="date" tick={{ fontSize: 12 }} padding={{ left: 20, right: 20 }} />
+        <XAxis
+          dataKey="date"
+          tick={{ fontSize: 12 }}
+          padding={{ left: 20, right: 20 }}
+        />
         <YAxis
           domain={[0, 100]}
           tick={{ fontSize: 12 }}
@@ -94,6 +102,7 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
             key={subject}
             type="linear"
             dataKey={subject}
+            name={subject}
             stroke={CHART_COLORS[i % CHART_COLORS.length]}
             strokeWidth={2}
             dot={{ r: 4 }}
@@ -104,6 +113,7 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
         <Line
           type="linear"
           dataKey="전체 평균"
+          name="전체 평균"
           stroke="#94a3b8"
           strokeWidth={2}
           strokeDasharray="5 5"
