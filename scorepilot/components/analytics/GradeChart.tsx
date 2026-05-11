@@ -107,7 +107,7 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
             strokeWidth={2}
             dot={{ r: 4 }}
             activeDot={{ r: 6 }}
-            connectNulls={false}
+            connectNulls
           />
         ))}
         <Line
