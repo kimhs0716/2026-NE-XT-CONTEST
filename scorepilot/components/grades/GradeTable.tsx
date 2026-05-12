@@ -1,8 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { useTransition, useState } from "react";
 import { deleteGrade } from "@/lib/actions/grades";
-import { examTypeLabels, type ExamType } from "@/lib/constants/grades";
+import { examTypeLabels, formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
 
 const SUBJECT_COLORS = [
   "#2563eb", "#16a34a", "#dc2626", "#d97706",
@@ -16,6 +16,7 @@ const examTypeBadgeClass: Record<ExamType, string> = {
   assignment: "bg-green-100 text-green-700 hover:bg-green-100",
   other:      "bg-gray-100 text-gray-600 hover:bg-gray-100",
 };
+
 import {
   Table,
   TableBody,
@@ -35,12 +36,14 @@ type GradeRow = {
   score: number;
   maxScore: number;
   percentage: number;
-  date: string;
+  semesterYear: number;
+  semesterType: SemesterType;
   memo: string | null;
 };
 
 export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; subjects: string[] }) {
   const [isPending, startTransition] = useTransition();
+  const [memoTooltip, setMemoTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const uniqueSubjects = [...new Set(grades.map((g) => g.subject))];
   const subjectColor = (name: string) =>
     SUBJECT_COLORS[uniqueSubjects.indexOf(name) % SUBJECT_COLORS.length];
@@ -54,6 +57,16 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
   }
 
   return (
+    <>
+    {memoTooltip && (
+      <div
+        style={{ top: memoTooltip.y, left: memoTooltip.x }}
+        className="fixed z-[200] pointer-events-none max-w-[240px] rounded-lg border bg-white shadow-lg px-3 py-2.5 text-xs text-foreground"
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">메모</p>
+        <p className="leading-relaxed whitespace-pre-wrap">{memoTooltip.text}</p>
+      </div>
+    )}
     <Table>
       <TableHeader>
         <TableRow>
@@ -61,7 +74,7 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
           <TableHead>시험 종류</TableHead>
           <TableHead className="text-right">점수</TableHead>
           <TableHead className="text-right">백분율</TableHead>
-          <TableHead>날짜</TableHead>
+          <TableHead>학기</TableHead>
           <TableHead>메모</TableHead>
           <TableHead />
         </TableRow>
@@ -91,20 +104,21 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
                 {g.percentage.toFixed(1)}%
               </span>
             </TableCell>
-            <TableCell>{g.date}</TableCell>
+            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+              {formatSemester(g.semesterYear, g.semesterType)}
+            </TableCell>
             <TableCell className="text-muted-foreground text-sm">
               {g.memo ? (
-                <div className="relative group/memo inline-block cursor-default">
-                  <span className="underline decoration-dotted underline-offset-2">
-                    {g.memo.length > 10 ? g.memo.slice(0, 10) + "…" : g.memo}
-                  </span>
-                  <div className="pointer-events-none absolute bottom-full left-0 mb-2 z-50 opacity-0 group-hover/memo:opacity-100 transition-opacity duration-100 w-max max-w-[220px] rounded-lg border bg-white shadow-lg px-3 py-2.5 text-xs text-foreground">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">메모</p>
-                    <p className="leading-relaxed whitespace-pre-wrap">{g.memo}</p>
-                    <span className="absolute top-full left-4 border-4 border-transparent border-t-border" />
-                    <span className="absolute top-full left-4 mt-[-1px] border-4 border-transparent border-t-white" />
-                  </div>
-                </div>
+                <span
+                  className="underline decoration-dotted underline-offset-2 cursor-default"
+                  onMouseEnter={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setMemoTooltip({ text: g.memo!, x: rect.left, y: rect.bottom + 6 });
+                  }}
+                  onMouseLeave={() => setMemoTooltip(null)}
+                >
+                  {g.memo.length > 10 ? g.memo.slice(0, 10) + "…" : g.memo}
+                </span>
               ) : (
                 "-"
               )}
@@ -127,5 +141,6 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
         ))}
       </TableBody>
     </Table>
+    </>
   );
 }

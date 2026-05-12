@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState, useState, useEffect } from "react";
+import { useActionState, useState, useEffect, startTransition } from "react";
 import { addGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
   commonSubjects,
+  semesterTypeLabels,
+  type SemesterType,
 } from "@/lib/constants/grades";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +23,10 @@ import {
 const selectClass =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
-const todayStr = () => new Date().toLocaleDateString("en-CA");
+function defaultSemesterType(): SemesterType {
+  const m = new Date().getMonth() + 1;
+  return m >= 3 && m <= 8 ? "semester_1" : "semester_2";
+}
 
 const INITIAL = {
   subjectMode: "select" as "select" | "custom",
@@ -42,7 +47,8 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
   const [examType, setExamType] = useState(INITIAL.examType);
   const [score, setScore] = useState(INITIAL.score);
   const [maxScore, setMaxScore] = useState(INITIAL.maxScore);
-  const [examDate, setExamDate] = useState(() => todayStr());
+  const [semesterYear, setSemesterYear] = useState(() => new Date().getFullYear());
+  const [semesterType, setSemesterType] = useState<SemesterType>(defaultSemesterType);
   const [memo, setMemo] = useState(INITIAL.memo);
 
   useEffect(() => {
@@ -54,7 +60,8 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
       setExamType(INITIAL.examType);
       setScore(INITIAL.score);
       setMaxScore(INITIAL.maxScore);
-      setExamDate(todayStr());
+      setSemesterYear(new Date().getFullYear());
+      setSemesterType(defaultSemesterType());
       setMemo(INITIAL.memo);
     }
   }, [state]);
@@ -69,7 +76,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
         <DialogHeader>
           <DialogTitle>성적 추가</DialogTitle>
         </DialogHeader>
-        <form action={action} className="space-y-4 mt-2">
+        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
             <Label>과목명<span className="text-red-500">*</span></Label>
@@ -150,15 +157,28 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="exam_date">날짜<span className="text-red-500">*</span></Label>
-            <Input
-              id="exam_date"
-              name="exam_date"
-              type="date"
-              value={examDate}
-              onChange={(e) => setExamDate(e.target.value)}
-              required
-            />
+            <Label>학기<span className="text-red-500">*</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                name="semester_year"
+                type="number"
+                min="2000"
+                max="2099"
+                value={semesterYear}
+                onChange={(e) => setSemesterYear(parseInt(e.target.value, 10))}
+                required
+              />
+              <select
+                name="semester_type"
+                value={semesterType}
+                onChange={(e) => setSemesterType(e.target.value as SemesterType)}
+                className={selectClass}
+              >
+                {(Object.entries(semesterTypeLabels) as [SemesterType, string][]).map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="memo">메모 (선택)</Label>

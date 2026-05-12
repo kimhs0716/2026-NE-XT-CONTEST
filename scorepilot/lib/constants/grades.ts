@@ -1,5 +1,16 @@
 export type ExamType = "midterm" | "final" | "assignment" | "mock_exam" | "other";
 
+export type SemesterType = "semester_1" | "semester_2";
+
+export const semesterTypeLabels: Record<SemesterType, string> = {
+  semester_1: "1학기",
+  semester_2: "2학기",
+};
+
+export function formatSemester(year: number, type: SemesterType): string {
+  return `${year}년 ${semesterTypeLabels[type]}`;
+}
+
 export const examTypeLabels: Record<ExamType, string> = {
   midterm: "중간고사",
   final: "기말고사",

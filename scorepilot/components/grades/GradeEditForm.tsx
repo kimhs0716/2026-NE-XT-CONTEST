@@ -1,12 +1,14 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useState, startTransition } from "react";
 import { updateGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
   commonSubjects,
+  semesterTypeLabels,
   type ExamType,
+  type SemesterType,
 } from "@/lib/constants/grades";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +30,8 @@ type Grade = {
   examType: ExamType;
   score: number;
   maxScore: number;
-  date: string;
+  semesterYear: number;
+  semesterType: SemesterType;
   memo: string | null;
 };
 
@@ -47,7 +50,8 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
   const [examType, setExamType] = useState(grade.examType);
   const [score, setScore] = useState(String(grade.score));
   const [maxScore, setMaxScore] = useState(String(grade.maxScore));
-  const [examDate, setExamDate] = useState(grade.date);
+  const [semesterYear, setSemesterYear] = useState(grade.semesterYear);
+  const [semesterType, setSemesterType] = useState<SemesterType>(grade.semesterType);
   const [memo, setMemo] = useState(grade.memo ?? "");
 
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
         <DialogHeader>
           <DialogTitle>성적 수정</DialogTitle>
         </DialogHeader>
-        <form action={action} className="space-y-4 mt-2">
+        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
           <input type="hidden" name="exam_id" value={grade.examId} />
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
@@ -144,15 +148,28 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit_exam_date">날짜<span className="text-red-500">*</span></Label>
-            <Input
-              id="edit_exam_date"
-              name="exam_date"
-              type="date"
-              value={examDate}
-              onChange={(e) => setExamDate(e.target.value)}
-              required
-            />
+            <Label>학기<span className="text-red-500">*</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                name="semester_year"
+                type="number"
+                min="2000"
+                max="2099"
+                value={semesterYear}
+                onChange={(e) => setSemesterYear(parseInt(e.target.value, 10))}
+                required
+              />
+              <select
+                name="semester_type"
+                value={semesterType}
+                onChange={(e) => setSemesterType(e.target.value as SemesterType)}
+                className={selectClass}
+              >
+                {(Object.entries(semesterTypeLabels) as [SemesterType, string][]).map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit_memo">메모 (선택)</Label>

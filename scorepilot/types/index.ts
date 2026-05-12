@@ -2,6 +2,8 @@ export type SchoolLevel = "middle" | "high";
 
 export type ExamType = "midterm" | "final" | "assignment" | "mock_exam" | "other";
 
+export type SemesterType = "semester_1" | "semester_2";
+
 export type EventType = "exam" | "assignment" | "mock_exam" | "study" | "school_academy" | "other";
 
 export type TaskType = "homework" | "review" | "preview" | "problem_solving" | "memorization" | "other";
@@ -22,10 +24,25 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface Semester {
+  id: string;
+  user_id: string;
+  year: number;
+  semester_type: SemesterType;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Subject {
   id: string;
   user_id: string;
+  semester_id: string;
   name: string;
+  credit: number | null;
   category: string | null;
   color: string | null;
   display_order: number;
@@ -49,9 +66,9 @@ export interface Exam {
   id: string;
   user_id: string;
   subject_id: string;
+  exam_semester: string;
   title: string;
   exam_type: ExamType;
-  exam_date: string;
   max_score: number;
   weight: number | null;
   memo: string | null;
@@ -78,6 +95,7 @@ export interface Schedule {
   user_id: string;
   subject_id: string | null;
   exam_id: string | null;
+  semester_id: string | null;
   title: string;
   event_type: EventType;
   start_date: string;
@@ -95,6 +113,7 @@ export interface StudyTask {
   user_id: string;
   subject_id: string | null;
   schedule_id: string | null;
+  semester_id: string | null;
   title: string;
   task_type: TaskType | null;
   due_date: string | null;
@@ -110,6 +129,7 @@ export interface StudyLog {
   id: string;
   user_id: string;
   subject_id: string | null;
+  semester_id: string | null;
   study_date: string;
   duration_minutes: number | null;
   content: string | null;
@@ -123,6 +143,7 @@ export interface ScorePrediction {
   id: string;
   user_id: string;
   subject_id: string;
+  semester_id: string | null;
   predicted_score: number | null;
   prediction_target: string | null;
   model_type: string | null;

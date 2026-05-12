@@ -3,6 +3,23 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
+async function findSubjectId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  name: string,
+): Promise<string | null> {
+  if (!name) return null;
+  // subjects는 이제 semester_id가 필수이므로, 이름이 일치하는 기존 과목만 연결
+  const { data } = await supabase
+    .from("subjects")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("name", name)
+    .limit(1)
+    .single();
+  return data?.id ?? null;
+}
+
 export async function addSchedule(_: unknown, formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -17,27 +34,7 @@ export async function addSchedule(_: unknown, formData: FormData) {
   if (!title) return { error: "제목을 입력해주세요." };
   if (!startDate) return { error: "날짜를 입력해주세요." };
 
-  let subjectId: string | null = null;
-  if (subjectName) {
-    const { data: existing } = await supabase
-      .from("subjects")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("name", subjectName)
-      .single();
-
-    if (existing) {
-      subjectId = existing.id;
-    } else {
-      const { data: newSubject, error: subjectError } = await supabase
-        .from("subjects")
-        .insert({ user_id: user.id, name: subjectName })
-        .select("id")
-        .single();
-      if (subjectError) return { error: "과목 생성 중 오류가 발생했습니다." };
-      subjectId = newSubject.id;
-    }
-  }
+  const subjectId = await findSubjectId(supabase, user.id, subjectName);
 
   const { error } = await supabase.from("schedules").insert({
     user_id: user.id,
@@ -69,27 +66,7 @@ export async function updateSchedule(_: unknown, formData: FormData) {
   if (!title) return { error: "제목을 입력해주세요." };
   if (!startDate) return { error: "날짜를 입력해주세요." };
 
-  let subjectId: string | null = null;
-  if (subjectName) {
-    const { data: existing } = await supabase
-      .from("subjects")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("name", subjectName)
-      .single();
-
-    if (existing) {
-      subjectId = existing.id;
-    } else {
-      const { data: newSubject, error: subjectError } = await supabase
-        .from("subjects")
-        .insert({ user_id: user.id, name: subjectName })
-        .select("id")
-        .single();
-      if (subjectError) return { error: "과목 생성 중 오류가 발생했습니다." };
-      subjectId = newSubject.id;
-    }
-  }
+  const subjectId = await findSubjectId(supabase, user.id, subjectName);
 
   const { error } = await supabase
     .from("schedules")

@@ -1,33 +1,38 @@
 import { createClient } from "@/lib/supabase/server";
+import { formatSemester, type SemesterType } from "@/lib/constants/grades";
 import GradeChart from "@/components/analytics/GradeChart";
 import PredictionSection from "@/components/analytics/PredictionSection";
 
-type Row = {
-  exam_date: string;
+type ExamRow = {
   exam_type: string;
   subjects: { name: string } | { name: string }[] | null;
+  semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
   grade_records: { percentage: number }[];
 };
 
 const EXAM_TYPES = ["midterm", "final", "mock_exam"];
 const ASSIGNMENT_TYPES = ["assignment"];
 
-function buildChartData(rows: { date: string; subject: string; percentage: number }[]) {
+function semesterOrder(year: number, type: SemesterType): number {
+  return year * 10 + (type === "semester_2" ? 2 : 1);
+}
+
+function buildChartData(rows: { semester: string; semOrder: number; subject: string; percentage: number }[]) {
   const subjects = [...new Set(rows.map((r) => r.subject))];
-  const byDate = new Map<string, Record<string, number | null>>();
+  const bySem = new Map<string, { semOrder: number; scores: Record<string, number | null> }>();
   for (const r of rows) {
-    if (!byDate.has(r.date)) {
-      byDate.set(r.date, Object.fromEntries(subjects.map((s) => [s, null])));
+    if (!bySem.has(r.semester)) {
+      bySem.set(r.semester, { semOrder: r.semOrder, scores: Object.fromEntries(subjects.map((s) => [s, null])) });
     }
-    byDate.get(r.date)![r.subject] = r.percentage;
+    bySem.get(r.semester)!.scores[r.subject] = r.percentage;
   }
-  const data = [...byDate.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, scores]) => {
+  const data = [...bySem.entries()]
+    .sort(([, a], [, b]) => a.semOrder - b.semOrder)
+    .map(([semester, { scores }]) => {
       const values = Object.values(scores).filter((v): v is number => v !== null);
       const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
       return {
-        date,
+        semester,
         ...scores,
         "전체 평균": avg !== null ? Math.round(avg * 10) / 10 : null,
       };
@@ -46,16 +51,16 @@ type SubjectStat = {
 };
 
 function computeSubjectStats(
-  rows: { subject: string; percentage: number; date: string }[]
+  rows: { subject: string; percentage: number; semOrder: number }[]
 ): SubjectStat[] {
-  const map = new Map<string, { percentage: number; date: string }[]>();
+  const map = new Map<string, { percentage: number; semOrder: number }[]>();
   for (const r of rows) {
     if (!map.has(r.subject)) map.set(r.subject, []);
     map.get(r.subject)!.push(r);
   }
   return [...map.entries()]
     .map(([subject, entries]) => {
-      const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+      const sorted = [...entries].sort((a, b) => a.semOrder - b.semOrder);
       const pcts = sorted.map((e) => e.percentage);
       const avg = pcts.reduce((a, b) => a + b, 0) / pcts.length;
       const last = pcts[pcts.length - 1];
@@ -101,13 +106,12 @@ export default async function AnalyticsPage() {
     supabase
       .from("exams")
       .select(`
-        exam_date,
         exam_type,
         subjects ( name ),
+        semesters!exam_semester ( year, semester_type ),
         grade_records ( percentage )
       `)
-      .eq("user_id", user!.id)
-      .order("exam_date", { ascending: true }),
+      .eq("user_id", user!.id),
     supabase
       .from("score_predictions")
       .select(`
@@ -122,12 +126,21 @@ export default async function AnalyticsPage() {
       .order("created_at", { ascending: false }),
   ]);
 
-  const validRows = (rows as Row[] ?? []).flatMap((r) => {
+  const validRows = (rows as ExamRow[] ?? []).flatMap((r) => {
     const pct = r.grade_records[0]?.percentage;
     if (pct == null) return [];
     const name = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
     if (!name) return [];
-    return [{ date: r.exam_date, examType: r.exam_type, subject: name, percentage: Number(pct) }];
+    const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
+    if (!sem) return [];
+    const type = sem.semester_type as SemesterType;
+    return [{
+      examType: r.exam_type,
+      subject: name,
+      percentage: Number(pct),
+      semester: formatSemester(sem.year, type),
+      semOrder: semesterOrder(sem.year, type),
+    }];
   });
 
   const examRows = validRows.filter((r) => EXAM_TYPES.includes(r.examType));
@@ -182,7 +195,6 @@ export default async function AnalyticsPage() {
         </p>
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-2 gap-6">
         <div className="rounded-xl border bg-white p-6">
           <h2 className="text-base font-semibold mb-6">시험 성적 추이</h2>
@@ -196,7 +208,6 @@ export default async function AnalyticsPage() {
 
       {subjectStats.length > 0 && (
         <>
-          {/* Subject stats table */}
           <div className="rounded-xl border bg-white p-6">
             <h2 className="text-base font-semibold mb-4">과목별 통계</h2>
             <table className="w-full text-sm">
@@ -233,7 +244,6 @@ export default async function AnalyticsPage() {
             </table>
           </div>
 
-          {/* Feedback */}
           {feedbacks.length > 0 && (
             <div className="rounded-xl border bg-white p-6 space-y-3">
               <h2 className="text-base font-semibold mb-1">학습 피드백</h2>
@@ -247,7 +257,6 @@ export default async function AnalyticsPage() {
         </>
       )}
 
-      {/* AI Prediction */}
       <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
     </div>
   );

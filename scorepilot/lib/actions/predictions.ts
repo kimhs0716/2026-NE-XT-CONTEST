@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { type SemesterType } from "@/lib/constants/grades";
 
-type GradePoint = { percentage: number; date: string };
+type GradePoint = { percentage: number; semOrder: number };
 
 function computePrediction(grades: GradePoint[]): {
   predicted: number;
@@ -12,7 +13,7 @@ function computePrediction(grades: GradePoint[]): {
 } | null {
   if (grades.length === 0) return null;
 
-  const sorted = [...grades].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...grades].sort((a, b) => a.semOrder - b.semOrder);
   const scores = sorted.map((g) => g.percentage);
   const n = scores.length;
 
@@ -24,11 +25,9 @@ function computePrediction(grades: GradePoint[]): {
     };
   }
 
-  // 최신 기록에 높은 가중치 부여 (1, 2, 3, ... n)
   const totalWeight = (n * (n + 1)) / 2;
   const weightedAvg = scores.reduce((sum, s, i) => sum + s * (i + 1), 0) / totalWeight;
 
-  // 최근 최대 5개 기록으로 선형 기울기 계산
   const window = scores.slice(-Math.min(n, 5));
   const wn = window.length;
   const xMean = (wn - 1) / 2;
@@ -37,11 +36,9 @@ function computePrediction(grades: GradePoint[]): {
   const den = window.reduce((sum, _, x) => sum + (x - xMean) ** 2, 0);
   const slope = den !== 0 ? num / den : 0;
 
-  // 예측값 = 가중 평균 + 트렌드 보정
   const raw = weightedAvg + slope * 0.6;
   const predicted = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
 
-  // 신뢰도: 분산이 낮고 데이터가 많을수록 높음
   const variance = scores.reduce((sum, s) => sum + (s - yMean) ** 2, 0) / n;
   const stdDev = Math.sqrt(variance);
   const baseConf = Math.max(0.35, 1 - stdDev / 60);
@@ -56,20 +53,17 @@ function computePrediction(grades: GradePoint[]): {
 
 export async function generatePredictions() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
   const { data: rows } = await supabase
     .from("exams")
     .select(`
-      exam_date,
       subjects ( id, name ),
+      semesters!exam_semester ( year, semester_type ),
       grade_records ( percentage )
     `)
-    .eq("user_id", user.id)
-    .order("exam_date", { ascending: true });
+    .eq("user_id", user.id);
 
   if (!rows?.length) return { error: "성적 데이터가 없습니다." };
 
@@ -79,11 +73,13 @@ export async function generatePredictions() {
     if (pct == null) continue;
     const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
     if (!sub) continue;
+    const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
+    if (!sem) continue;
+    const semOrder = sem.year * 10 + (sem.semester_type as SemesterType === "semester_2" ? 2 : 1);
     if (!map.has(sub.id)) map.set(sub.id, { name: sub.name, grades: [] });
-    map.get(sub.id)!.grades.push({ percentage: Number(pct), date: r.exam_date });
+    map.get(sub.id)!.grades.push({ percentage: Number(pct), semOrder });
   }
 
-  // 기존 예측 전체 삭제 후 새로 삽입
   await supabase.from("score_predictions").delete().eq("user_id", user.id);
 
   const inserts = [];

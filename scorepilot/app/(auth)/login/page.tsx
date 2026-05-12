@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, startTransition } from "react";
 import Link from "next/link";
 import { login } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ export default function LoginPage() {
         <CardDescription>Scorepilot에 오신 것을 환영합니다</CardDescription>
       </CardHeader>
       <CardContent>
-        <form action={action} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">이메일<span className="text-red-500">*</span></Label>
             <Input

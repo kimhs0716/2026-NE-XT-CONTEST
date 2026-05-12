@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useActionState, useTransition, useEffect } from "react";
+import { useState, useMemo, useActionState, useTransition, useEffect, startTransition } from "react";
 import { ChevronLeft, ChevronRight, Plus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,14 +48,12 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   other: "기타",
 };
 
-export type CalendarEvent = {
+export type ScheduleEvent = {
   id: string;
   date: string;
   title: string;
   eventType: string;
-  percentage: number | null;
-  isGrade: boolean;
-  isCompleted?: boolean;
+  isCompleted: boolean;
   description?: string;
   subjectName?: string;
 };
@@ -83,11 +81,7 @@ function AddScheduleDialog({
 
   const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
   const subjectName =
-    subjectMode === "select"
-      ? selectedSubject
-      : subjectMode === "custom"
-      ? customSubject
-      : "";
+    subjectMode === "select" ? selectedSubject : subjectMode === "custom" ? customSubject : "";
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -95,7 +89,7 @@ function AddScheduleDialog({
         <DialogHeader>
           <DialogTitle>일정 추가</DialogTitle>
         </DialogHeader>
-        <form action={action} className="space-y-4 mt-2">
+        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
             <Label htmlFor="sched-title">제목<span className="text-red-500">*</span></Label>
@@ -116,30 +110,16 @@ function AddScheduleDialog({
           <div className="space-y-2">
             <Label>과목 (선택)</Label>
             <select
-              value={
-                subjectMode === "none"
-                  ? ""
-                  : subjectMode === "custom"
-                  ? "__custom__"
-                  : selectedSubject
-              }
+              value={subjectMode === "none" ? "" : subjectMode === "custom" ? "__custom__" : selectedSubject}
               onChange={(e) => {
-                if (!e.target.value) {
-                  setSubjectMode("none");
-                } else if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
+                if (!e.target.value) setSubjectMode("none");
+                else if (e.target.value === "__custom__") { setSubjectMode("custom"); setSelectedSubject(""); }
+                else { setSubjectMode("select"); setSelectedSubject(e.target.value); }
               }}
               className={selectClass}
             >
               <option value="">과목 없음</option>
-              {subjectOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               <option value="__custom__">직접 입력...</option>
             </select>
             {subjectMode === "custom" && (
@@ -169,7 +149,7 @@ function EditScheduleDialog({
   subjects,
   onClose,
 }: {
-  event: CalendarEvent;
+  event: ScheduleEvent;
   subjects: string[];
   onClose: () => void;
 }) {
@@ -203,7 +183,7 @@ function EditScheduleDialog({
         <DialogHeader>
           <DialogTitle>일정 수정</DialogTitle>
         </DialogHeader>
-        <form action={action} className="space-y-4 mt-2">
+        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
           <input type="hidden" name="schedule_id" value={event.id} />
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
@@ -225,26 +205,16 @@ function EditScheduleDialog({
           <div className="space-y-2">
             <Label>과목 (선택)</Label>
             <select
-              value={
-                subjectMode === "none" ? "" : subjectMode === "custom" ? "__custom__" : selectedSubject
-              }
+              value={subjectMode === "none" ? "" : subjectMode === "custom" ? "__custom__" : selectedSubject}
               onChange={(e) => {
-                if (!e.target.value) {
-                  setSubjectMode("none");
-                } else if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
+                if (!e.target.value) setSubjectMode("none");
+                else if (e.target.value === "__custom__") { setSubjectMode("custom"); setSelectedSubject(""); }
+                else { setSubjectMode("select"); setSelectedSubject(e.target.value); }
               }}
               className={selectClass}
             >
               <option value="">과목 없음</option>
-              {subjectOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               <option value="__custom__">직접 입력...</option>
             </select>
             {subjectMode === "custom" && (
@@ -279,7 +249,7 @@ function EventDetailDialog({
   onClose,
   onEdit,
 }: {
-  event: CalendarEvent;
+  event: ScheduleEvent;
   onClose: () => void;
   onEdit: () => void;
 }) {
@@ -323,70 +293,34 @@ function EventDetailDialog({
               <span>{event.subjectName}</span>
             </div>
           )}
-          {event.isGrade && event.percentage !== null && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">성적</span>
-              <span
-                className={cn(
-                  "font-semibold",
-                  event.percentage >= 80
-                    ? "text-green-600"
-                    : event.percentage >= 60
-                    ? "text-yellow-600"
-                    : "text-red-500",
-                )}
-              >
-                {event.percentage.toFixed(1)}%
-              </span>
-            </div>
-          )}
-          {!event.isGrade && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">상태</span>
-              <span className={event.isCompleted ? "text-green-600" : "text-muted-foreground"}>
-                {event.isCompleted ? "완료" : "예정"}
-              </span>
-            </div>
-          )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">상태</span>
+            <span className={event.isCompleted ? "text-green-600" : "text-muted-foreground"}>
+              {event.isCompleted ? "완료" : "예정"}
+            </span>
+          </div>
           {event.description && (
             <div className="pt-2 border-t">
               <p className="text-muted-foreground text-xs">{event.description}</p>
             </div>
           )}
-          {event.isGrade && (
-            <p className="text-xs text-muted-foreground pt-1 border-t">
-              성적 수정은 성적 페이지에서 가능합니다.
-            </p>
-          )}
         </div>
         <div className="flex justify-between mt-4 pt-4 border-t gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
-            닫기
-          </Button>
-          {!event.isGrade && (
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleToggle}
-                disabled={pending}
-                className={
-                  event.isCompleted
-                    ? "text-muted-foreground"
-                    : "text-green-600 border-green-200 hover:bg-green-50"
-                }
-              >
-                <Check className="w-3.5 h-3.5 mr-1" />
-                {event.isCompleted ? "완료 취소" : "완료"}
-              </Button>
-              <Button variant="outline" size="sm" onClick={onEdit} disabled={pending}>
-                수정
-              </Button>
-              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={pending}>
-                삭제
-              </Button>
-            </div>
-          )}
+          <Button variant="outline" size="sm" onClick={onClose}>닫기</Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleToggle}
+              disabled={pending}
+              className={event.isCompleted ? "text-muted-foreground" : "text-green-600 border-green-200 hover:bg-green-50"}
+            >
+              <Check className="w-3.5 h-3.5 mr-1" />
+              {event.isCompleted ? "완료 취소" : "완료"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={onEdit} disabled={pending}>수정</Button>
+            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={pending}>삭제</Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -394,21 +328,21 @@ function EventDetailDialog({
 }
 
 export default function CalendarView({
-  events,
+  schedules,
   subjects,
 }: {
-  events: CalendarEvent[];
+  schedules: ScheduleEvent[];
   subjects: string[];
 }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [tooltip, setTooltip] = useState<{ event: CalendarEvent; x: number; y: number } | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
+  const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const [tooltip, setTooltip] = useState<{ event: ScheduleEvent; x: number; y: number } | null>(null);
 
-  function handlePillEnter(e: React.MouseEvent<HTMLButtonElement>, ev: CalendarEvent) {
+  function handlePillEnter(e: React.MouseEvent<HTMLButtonElement>, ev: ScheduleEvent) {
     const rect = e.currentTarget.getBoundingClientRect();
     setTooltip({ event: ev, x: rect.left, y: rect.bottom + 6 });
   }
@@ -416,13 +350,13 @@ export default function CalendarView({
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   const eventsByDate = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
-    for (const e of events) {
+    const map = new Map<string, ScheduleEvent[]>();
+    for (const e of schedules) {
       if (!map.has(e.date)) map.set(e.date, []);
       map.get(e.date)!.push(e);
     }
     return map;
-  }, [events]);
+  }, [schedules]);
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDay = new Date(year, month, 1).getDay();
@@ -444,217 +378,199 @@ export default function CalendarView({
   const weeks: (number | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
-  const monthEvents = events
+  const monthEvents = schedules
     .filter((e) => e.date.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <>
-      <div className="space-y-6">
-        {/* Navigation */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={goToPrev}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={goToNext}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-            <span className="text-lg font-semibold ml-1">
-              {year}년 {month + 1}월
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={goToToday}>
-              오늘
-            </Button>
-            <Button size="sm" onClick={() => setSelectedDate(todayStr)}>
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              일정 추가
-            </Button>
-          </div>
-        </div>
-
-        {/* Calendar grid — flex rows with explicit 1/7 widths guarantee equal columns */}
-        <div className="rounded-xl border overflow-hidden w-full">
-          {/* Weekday headers */}
-          <div className="flex w-full border-b">
-            {WEEKDAYS.map((d, colIdx) => (
-              <div
-                key={d}
-                style={{ width: `${100 / 7}%` }}
-                className={cn(
-                  "flex-none bg-muted/30 text-center py-2.5 text-xs font-medium",
-                  colIdx < 6 && "border-r",
-                  colIdx === 0 ? "text-red-500" : colIdx === 6 ? "text-blue-500" : "text-muted-foreground",
-                )}
-              >
-                {d}
-              </div>
-            ))}
-          </div>
-
-          {/* Week rows */}
-          {weeks.map((week, rowIdx) => (
-            <div key={rowIdx} className="flex w-full">
-              {week.map((day, colIdx) => {
-                const isLastRow = rowIdx === weeks.length - 1;
-                const isLastCol = colIdx === 6;
-                const isSun = colIdx === 0;
-                const isSat = colIdx === 6;
-                const cellBorder = cn(!isLastRow && "border-b", !isLastCol && "border-r");
-
-                if (!day) {
-                  return (
-                    <div
-                      key={colIdx}
-                      style={{ width: `${100 / 7}%` }}
-                      className={cn("flex-none min-h-[140px] bg-muted/10", cellBorder)}
-                    />
-                  );
-                }
-
-                const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const dayEvents = eventsByDate.get(dateStr) ?? [];
-                const isToday = dateStr === todayStr;
-
-                return (
-                  <div
-                    key={colIdx}
-                    style={{ width: `${100 / 7}%` }}
-                    className={cn("flex-none min-h-[140px] p-1.5 space-y-1 bg-white group", cellBorder)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={cn(
-                          "inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium",
-                          isToday
-                            ? "bg-primary text-primary-foreground font-bold"
-                            : isSun
-                            ? "text-red-500"
-                            : isSat
-                            ? "text-blue-500"
-                            : "text-foreground",
-                        )}
-                      >
-                        {day}
-                      </span>
-                      <button
-                        onClick={() => setSelectedDate(dateStr)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
-                    {dayEvents.slice(0, 3).map((e, j) => (
-                      <button
-                        key={j}
-                        onClick={() => setSelectedEvent(e)}
-                        onMouseEnter={(ev) => handlePillEnter(ev, e)}
-                        onMouseLeave={() => setTooltip(null)}
-                        className={cn(
-                          "w-full text-left text-xs truncate rounded px-1 py-0.5",
-                          e.isCompleted && !e.isGrade ? "opacity-60 line-through" : "",
-                          EVENT_TYPE_PILL[e.eventType] ?? "bg-gray-100 text-gray-600",
-                        )}
-                      >
-                        {e.title}
-                        {e.isGrade && e.percentage !== null && (
-                          <span className="ml-1 font-medium">{Math.round(e.percentage)}%</span>
-                        )}
-                      </button>
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <button
-                        onClick={() => setSelectedDate(dateStr)}
-                        className="text-xs text-muted-foreground px-1 hover:text-foreground"
-                      >
-                        +{dayEvents.length - 3}개 더
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.22fr)_minmax(300px,0.86fr)] items-start">
+        <section className="min-w-0 space-y-4">
+          <div className="flex items-center justify-between gap-4 rounded-2xl border bg-white px-4 py-3 md:px-5">
+            <div className="flex items-center gap-2 min-w-0">
+              <Button variant="outline" size="icon" onClick={goToPrev}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <Button variant="outline" size="icon" onClick={goToNext}>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+              <span className="text-lg font-semibold ml-1 whitespace-nowrap">
+                {year}년 {month + 1}월
+              </span>
             </div>
-          ))}
-        </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={goToToday}>오늘</Button>
+              <Button size="sm" onClick={() => setSelectedDate(todayStr)}>
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                일정 추가
+              </Button>
+            </div>
+          </div>
 
-        {/* Month event list */}
-        {monthEvents.length > 0 && (
-          <div className="rounded-xl border bg-white p-5 space-y-3">
+          <div className="overflow-hidden rounded-2xl border bg-white">
+            <div className="flex w-full border-b bg-muted/20">
+              {WEEKDAYS.map((d, colIdx) => (
+                <div
+                  key={d}
+                  style={{ width: `${100 / 7}%` }}
+                  className={cn(
+                    "flex-none border-r last:border-r-0 text-center py-2 text-xs font-medium",
+                    colIdx === 0 ? "text-red-500" : colIdx === 6 ? "text-blue-500" : "text-muted-foreground",
+                  )}
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+
+            {weeks.map((week, rowIdx) => {
+              const isLastRow = rowIdx === weeks.length - 1;
+              return (
+                <div key={rowIdx} className="flex w-full">
+                  {week.map((day, colIdx) => {
+                    const isLastCol = colIdx === 6;
+                    const isSun = colIdx === 0;
+                    const isSat = colIdx === 6;
+                    const cellBorder = cn(!isLastRow && "border-b", !isLastCol && "border-r");
+
+                    if (!day) {
+                      return (
+                        <div
+                          key={colIdx}
+                          style={{ width: `${100 / 7}%` }}
+                          className={cn("flex-none min-h-[76px] bg-muted/10", cellBorder)}
+                        />
+                      );
+                    }
+
+                    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const dayEvents = eventsByDate.get(dateStr) ?? [];
+                    const isToday = dateStr === todayStr;
+
+                    return (
+                      <div
+                        key={colIdx}
+                        style={{ width: `${100 / 7}%` }}
+                        className={cn("flex-none min-h-[76px] p-1 bg-white group", cellBorder)}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span
+                            className={cn(
+                              "inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-medium",
+                              isToday
+                                ? "bg-primary text-primary-foreground font-bold"
+                                : isSun
+                                ? "text-red-500"
+                                : isSat
+                                ? "text-blue-500"
+                                : "text-foreground",
+                            )}
+                          >
+                            {day}
+                          </span>
+                          <button
+                            onClick={() => setSelectedDate(dateStr)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        <div className="mt-1 space-y-1">
+                          {dayEvents.slice(0, 2).map((e, j) => (
+                            <button
+                              key={j}
+                              onClick={() => setSelectedEvent(e)}
+                              onMouseEnter={(ev) => handlePillEnter(ev, e)}
+                              onMouseLeave={() => setTooltip(null)}
+                              className={cn(
+                                "block w-full truncate rounded px-1 py-0.5 text-left text-[11px] leading-4",
+                                e.isCompleted ? "opacity-60 line-through" : "",
+                                EVENT_TYPE_PILL[e.eventType] ?? "bg-gray-100 text-gray-600",
+                              )}
+                            >
+                              {e.title}
+                            </button>
+                          ))}
+                          {dayEvents.length > 2 && (
+                            <button
+                              onClick={() => setSelectedDate(dateStr)}
+                              className="px-1 text-[11px] text-muted-foreground hover:text-foreground"
+                            >
+                              +{dayEvents.length - 2}개 더
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <aside className="min-w-0 space-y-4 xl:sticky xl:top-8">
+          <div className="rounded-2xl border bg-white p-4 space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground">
               {month + 1}월 일정 목록
             </h3>
-            <div className="space-y-1">
-              {monthEvents.map((e, i) => (
-                <button
-                  key={i}
-                  onClick={() => setSelectedEvent(e)}
-                  onMouseEnter={(ev) => handlePillEnter(ev, e)}
-                  onMouseLeave={() => setTooltip(null)}
-                  className="w-full text-left flex items-center justify-between text-sm py-2 border-b last:border-0 hover:bg-muted/30 rounded px-1 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-muted-foreground text-xs w-20 shrink-0">{e.date}</span>
-                    <span
-                      className={cn(
-                        "px-1.5 py-0.5 rounded text-xs shrink-0",
-                        EVENT_TYPE_PILL[e.eventType] ?? "bg-gray-100 text-gray-600",
-                      )}
-                    >
-                      {EVENT_TYPE_LABEL[e.eventType] ?? e.eventType}
-                    </span>
-                    <span
-                      className={cn(
-                        "font-medium truncate",
-                        e.isCompleted && !e.isGrade ? "line-through text-muted-foreground" : "",
-                      )}
-                    >
-                      {e.title}
-                    </span>
-                  </div>
-                  <div className="shrink-0 ml-2">
-                    {e.isGrade && e.percentage !== null ? (
+            <div className="max-h-[calc(100vh-260px)] space-y-1 overflow-auto pr-1">
+              {monthEvents.length > 0 ? (
+                monthEvents.map((e, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedEvent(e)}
+                    onMouseEnter={(ev) => handlePillEnter(ev, e)}
+                    onMouseLeave={() => setTooltip(null)}
+                    className="w-full rounded-lg border border-transparent px-2 py-2 text-left text-sm transition-colors hover:border-border hover:bg-muted/30"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-20 shrink-0 text-xs text-muted-foreground">{e.date}</span>
                       <span
                         className={cn(
-                          "font-medium text-sm",
-                          e.percentage >= 80
-                            ? "text-green-600"
-                            : e.percentage >= 60
-                            ? "text-yellow-600"
-                            : "text-red-500",
+                          "shrink-0 rounded px-1.5 py-0.5 text-[11px]",
+                          EVENT_TYPE_PILL[e.eventType] ?? "bg-gray-100 text-gray-600",
                         )}
                       >
-                        {e.percentage.toFixed(1)}%
+                        {EVENT_TYPE_LABEL[e.eventType] ?? e.eventType}
                       </span>
-                    ) : !e.isGrade ? (
                       <span
                         className={cn(
-                          "text-xs",
-                          e.isCompleted ? "text-green-600 font-medium" : "text-muted-foreground",
+                          "min-w-0 flex-1 truncate font-medium",
+                          e.isCompleted ? "line-through text-muted-foreground" : "",
                         )}
                       >
+                        {e.title}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {e.isCompleted ? "완료" : "예정"}
                       </span>
-                    ) : null}
-                  </div>
-                </button>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p className="px-1 py-3 text-sm text-muted-foreground">
+                  이 달에는 일정이 없습니다.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-muted-foreground">범례</h3>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(EVENT_TYPE_LABEL).map(([type, label]) => (
+                <span
+                  key={type}
+                  className={cn("text-xs px-2 py-0.5 rounded", EVENT_TYPE_PILL[type])}
+                >
+                  {label}
+                </span>
               ))}
             </div>
           </div>
-        )}
-
-        {/* Legend */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {Object.entries(EVENT_TYPE_LABEL).map(([type, label]) => (
-            <span
-              key={type}
-              className={cn("text-xs px-2 py-0.5 rounded", EVENT_TYPE_PILL[type])}
-            >
-              {label}
-            </span>
-          ))}
-        </div>
+        </aside>
       </div>
 
       {selectedDate !== null && (
@@ -682,7 +598,6 @@ export default function CalendarView({
         />
       )}
 
-      {/* Hover tooltip — fixed so it escapes any overflow-hidden container */}
       {tooltip && (
         <div
           style={{ top: tooltip.y, left: tooltip.x }}
@@ -692,16 +607,9 @@ export default function CalendarView({
             <span className={cn("px-1.5 py-0.5 rounded font-medium", EVENT_TYPE_PILL[tooltip.event.eventType] ?? "bg-gray-100 text-gray-600")}>
               {EVENT_TYPE_LABEL[tooltip.event.eventType] ?? tooltip.event.eventType}
             </span>
-            {tooltip.event.isGrade && tooltip.event.percentage !== null && (
-              <span className={cn("font-semibold ml-auto", tooltip.event.percentage >= 80 ? "text-green-600" : tooltip.event.percentage >= 60 ? "text-yellow-600" : "text-red-500")}>
-                {tooltip.event.percentage.toFixed(1)}%
-              </span>
-            )}
-            {!tooltip.event.isGrade && (
-              <span className={cn("text-xs ml-auto", tooltip.event.isCompleted ? "text-green-600 font-medium" : "text-muted-foreground")}>
-                {tooltip.event.isCompleted ? "✓ 완료" : "예정"}
-              </span>
-            )}
+            <span className={cn("text-xs ml-auto", tooltip.event.isCompleted ? "text-green-600 font-medium" : "text-muted-foreground")}>
+              {tooltip.event.isCompleted ? "✓ 완료" : "예정"}
+            </span>
           </div>
           <p className="font-semibold text-foreground leading-snug">{tooltip.event.title}</p>
           {tooltip.event.subjectName && (

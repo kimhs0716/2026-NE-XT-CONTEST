@@ -85,7 +85,7 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
         <XAxis
-          dataKey="date"
+          dataKey="semester"
           tick={{ fontSize: 12 }}
           padding={{ left: 20, right: 20 }}
         />

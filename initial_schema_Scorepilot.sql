@@ -1020,6 +1020,15 @@ using (
 );
 
 /*====================================================
+  GRANT 설정
+  raw SQL로 테이블 생성 시 authenticated 역할에
+  접근 권한을 명시적으로 부여해야 함 (RLS가 실제 행 접근을 제어)
+====================================================*/
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+
+/*====================================================
   첫 관리자 계정 부여
   admin@example.com을 실제 관리자 이메일로 바꿔서 실행
   실제 회원가입 후 따로 실행(현재는 주석처리)

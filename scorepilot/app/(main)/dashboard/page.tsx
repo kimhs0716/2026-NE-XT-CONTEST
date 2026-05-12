@@ -1,12 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import { examTypeLabels, type ExamType } from "@/lib/constants/grades";
+import { examTypeLabels, formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
 import { cn } from "@/lib/utils";
 
-type Row = {
-  exam_date: string;
+type ExamRow = {
   exam_type: string;
   subjects: { name: string } | { name: string }[] | null;
+  semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
   grade_records: { percentage: number }[];
 };
 
@@ -47,24 +47,33 @@ export default async function DashboardPage() {
   const { data: rows } = await supabase
     .from("exams")
     .select(`
-      exam_date,
       exam_type,
       subjects ( name ),
+      semesters!exam_semester ( year, semester_type ),
       grade_records ( percentage )
     `)
     .eq("user_id", user!.id)
-    .order("exam_date", { ascending: false });
+    .order("created_at", { ascending: false });
 
-  const validRows = (rows as Row[] ?? []).flatMap((r) => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentSemType: SemesterType = currentMonth >= 3 && currentMonth <= 8 ? "semester_1" : "semester_2";
+
+  const validRows = (rows as ExamRow[] ?? []).flatMap((r) => {
     const pct = r.grade_records[0]?.percentage;
     if (pct == null) return [];
     const name = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
     if (!name) return [];
+    const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
+    if (!sem) return [];
     return [{
-      date: r.exam_date,
       examType: r.exam_type as ExamType,
       subject: name,
       percentage: Number(pct),
+      semesterYear: sem.year,
+      semesterType: sem.semester_type as SemesterType,
+      semesterLabel: formatSemester(sem.year, sem.semester_type as SemesterType),
     }];
   });
 
@@ -77,8 +86,9 @@ export default async function DashboardPage() {
   const subjectSet = new Set(validRows.map((r) => r.subject));
   const subjectCount = subjectSet.size;
 
-  const thisMonth = new Date().toISOString().slice(0, 7);
-  const thisMonthCount = validRows.filter((r) => r.date.startsWith(thisMonth)).length;
+  const currentSemCount = validRows.filter(
+    (r) => r.semesterYear === currentYear && r.semesterType === currentSemType
+  ).length;
 
   const recent = validRows.slice(0, 6);
 
@@ -110,12 +120,11 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="전체 시험" value={totalExams} unit="회" />
         <StatCard label="전체 평균" value={overallAvg} unit="%" color={avgColor} />
         <StatCard label="등록 과목" value={subjectCount} unit="개" />
-        <StatCard label="이번 달" value={thisMonthCount} unit="회" />
+        <StatCard label="이번 학기" value={currentSemCount} unit="회" />
       </div>
 
       {totalExams === 0 ? (
@@ -127,7 +136,6 @@ export default async function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-6">
-          {/* Recent grades */}
           <div className="rounded-xl border bg-white p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">최근 성적</h2>
@@ -148,7 +156,7 @@ export default async function DashboardPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-muted-foreground">{r.date}</span>
+                    <span className="text-xs text-muted-foreground">{r.semesterLabel}</span>
                     <span
                       className={cn(
                         "font-semibold w-14 text-right",
@@ -167,7 +175,6 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          {/* Subject overview */}
           <div className="space-y-4">
             {weakSubjects.length > 0 && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-5 space-y-3">
