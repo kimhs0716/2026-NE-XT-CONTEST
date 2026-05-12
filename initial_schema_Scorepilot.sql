@@ -377,6 +377,32 @@ create table public.admin_logs (
 
 
 
+/*수능 모의고사 성적 기록 table (고등학생용)*/
+create table public.mock_exam_records (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+
+  --시험 연도 및 월 (예: 2026년 6월 모의고사)
+  exam_year int not null,
+  exam_month int not null check (exam_month in (3, 4, 5, 6, 7, 9, 10, 11)),
+
+  --과목명 (국어, 수학, 영어, 한국사, 탐구1, 탐구2, 제2외국어)
+  subject text not null,
+
+  --원점수
+  raw_score int check (raw_score >= 0 and raw_score <= 100),
+  --백분위
+  percentile numeric(5,2) check (percentile >= 0 and percentile <= 100),
+  --등급 (1~9)
+  grade int check (grade >= 1 and grade <= 9),
+  --목표점수
+  target_score int check (target_score >= 0 and target_score <= 100),
+
+  created_at timestamp with time zone default now(),
+
+  unique(user_id, exam_year, exam_month, subject)
+);
+
 /*RLS에서 쓸 관리자 확인 함수
 현재 로그인된 사용자의 user_roles에 admin이 있으면 true
 없으면 false*/
@@ -410,6 +436,7 @@ alter table public.weakness_reports enable row level security;
 alter table public.learning_recommendations enable row level security;
 alter table public.score_predictions enable row level security;
 alter table public.admin_logs enable row level security;
+alter table public.mock_exam_records enable row level security;
 
 /*기본 RLS 정책 구조
 일반 사용자:
@@ -1018,6 +1045,27 @@ for delete
 using (
   public.is_admin()
 );
+
+create policy "mock_exam_records_select_own"
+on public.mock_exam_records
+for select
+using (auth.uid() = user_id);
+
+create policy "mock_exam_records_insert_own"
+on public.mock_exam_records
+for insert
+with check (auth.uid() = user_id);
+
+create policy "mock_exam_records_update_own"
+on public.mock_exam_records
+for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+create policy "mock_exam_records_delete_own"
+on public.mock_exam_records
+for delete
+using (auth.uid() = user_id);
 
 /*====================================================
   GRANT 설정

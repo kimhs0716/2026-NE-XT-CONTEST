@@ -384,7 +384,7 @@ export default function CalendarView({
 
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.22fr)_minmax(300px,0.86fr)] items-start">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px] items-start">
         <section className="min-w-0 space-y-4">
           <div className="flex items-center justify-between gap-4 rounded-2xl border bg-white px-4 py-3 md:px-5">
             <div className="flex items-center gap-2 min-w-0">
@@ -510,7 +510,7 @@ export default function CalendarView({
           </div>
         </section>
 
-        <aside className="min-w-0 space-y-4 xl:sticky xl:top-8">
+        <aside className="w-full xl:w-[340px] xl:min-w-[340px] xl:max-w-[340px] space-y-4 xl:sticky xl:top-8">
           <div className="rounded-2xl border bg-white p-4 space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground">
               {month + 1}월 일정 목록

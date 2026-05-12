@@ -40,6 +40,53 @@ function buildChartData(rows: { semester: string; semOrder: number; subject: str
   return { data, subjects };
 }
 
+const EXAM_TYPE_SHORT: Record<string, string> = {
+  midterm: "중간",
+  final: "기말",
+  mock_exam: "모의",
+};
+
+const EXAM_TYPE_ORDER: Record<string, number> = {
+  midterm: 1,
+  final: 2,
+  mock_exam: 3,
+};
+
+function buildExamChartData(
+  rows: { semOrder: number; subject: string; percentage: number; examType: string }[]
+) {
+  const subjects = [...new Set(rows.map((r) => r.subject))];
+  type Bucket = { semOrder: number; etOrder: number; label: string; scores: Record<string, number | null> };
+  const byKey = new Map<string, Bucket>();
+  for (const r of rows) {
+    const key = `${r.semOrder}__${r.examType}`;
+    if (!byKey.has(key)) {
+      const year = Math.floor(r.semOrder / 10);
+      const semNum = r.semOrder % 10;
+      const short = EXAM_TYPE_SHORT[r.examType] ?? r.examType;
+      byKey.set(key, {
+        semOrder: r.semOrder,
+        etOrder: EXAM_TYPE_ORDER[r.examType] ?? 99,
+        label: `${year}-${semNum} ${short}`,
+        scores: Object.fromEntries(subjects.map((s) => [s, null])),
+      });
+    }
+    byKey.get(key)!.scores[r.subject] = r.percentage;
+  }
+  const data = [...byKey.values()]
+    .sort((a, b) => a.semOrder - b.semOrder || a.etOrder - b.etOrder)
+    .map(({ label, scores }) => {
+      const values = Object.values(scores).filter((v): v is number => v !== null);
+      const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+      return {
+        semester: label,
+        ...scores,
+        "전체 평균": avg !== null ? Math.round(avg * 10) / 10 : null,
+      };
+    });
+  return { data, subjects };
+}
+
 type SubjectStat = {
   subject: string;
   count: number;
@@ -146,7 +193,7 @@ export default async function AnalyticsPage() {
   const examRows = validRows.filter((r) => EXAM_TYPES.includes(r.examType));
   const assignmentRows = validRows.filter((r) => ASSIGNMENT_TYPES.includes(r.examType));
 
-  const exam = buildChartData(examRows);
+  const exam = buildExamChartData(examRows);
   const assignment = buildChartData(assignmentRows);
 
   const subjectStats = computeSubjectStats(validRows);

@@ -50,7 +50,7 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
 
   if (grades.length === 0) {
     return (
-      <div className="text-center py-16 text-muted-foreground">
+      <div className="rounded-xl border bg-white p-12 text-center text-muted-foreground text-sm">
         아직 등록된 성적이 없습니다.
       </div>
     );

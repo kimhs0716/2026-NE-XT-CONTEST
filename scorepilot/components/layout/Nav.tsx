@@ -2,7 +2,7 @@ import Link from "next/link";
 import LogoutButton from "@/components/layout/LogoutButton";
 import NavLinks from "@/components/layout/NavLinks";
 
-export default function Nav() {
+export default function Nav({ schoolLevel }: { schoolLevel: "middle" | "high" | null }) {
   return (
     <header className="border-b bg-white">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -10,7 +10,7 @@ export default function Nav() {
           <Link href="/dashboard" className="font-bold text-lg">
             Scorepilot
           </Link>
-          <NavLinks />
+          <NavLinks schoolLevel={schoolLevel} />
         </div>
         <LogoutButton />
       </div>
