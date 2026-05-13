@@ -141,9 +141,10 @@ export default async function GradesPage() {
                   ? "text-yellow-600"
                   : "text-red-500";
               return (
-                <div
+                <Link
                   key={s.name}
-                  className="rounded-2xl border bg-white p-5 flex flex-col gap-3 hover:shadow-md transition-shadow"
+                  href={`/grades/${encodeURIComponent(s.name)}`}
+                  className="rounded-2xl border bg-white p-5 flex flex-col gap-3 hover:shadow-md transition-shadow no-underline text-foreground"
                 >
                   <div>
                     <p className="text-base font-bold">{s.name}</p>
@@ -153,13 +154,10 @@ export default async function GradesPage() {
                     <span className={`text-2xl font-bold ${color}`}>{s.avg}%</span>
                     <span className="text-xs text-muted-foreground ml-1">평균 ({s.count}회)</span>
                   </div>
-                  <Link
-                    href={`/grades/${encodeURIComponent(s.name)}`}
-                    className="mt-auto inline-flex items-center justify-center rounded-lg bg-secondary hover:bg-secondary/80 px-3 py-1.5 text-sm font-medium transition-colors"
-                  >
+                  <div className="mt-auto inline-flex items-center justify-center rounded-lg bg-secondary/20 px-3 py-1.5 text-sm font-medium text-muted-foreground">
                     → 홈 바로가기
-                  </Link>
-                </div>
+                  </div>
+                </Link>
               );
             })}
           </div>

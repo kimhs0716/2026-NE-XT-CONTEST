@@ -54,10 +54,9 @@ export default function PredictionSection({
   }
 
   return (
-    <div className="rounded-xl border bg-white p-6">
+    <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-base font-semibold">AI 성적 예측</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             과목별 가중 선형 추세 모델 기반 예측
           </p>

@@ -9,6 +9,8 @@ import {
 } from "@/lib/constants/grades";
 import SubjectCharts from "@/components/grades/SubjectCharts";
 import GradeForm from "@/components/grades/GradeForm";
+import GradeEditForm from "@/components/grades/GradeEditForm";
+import GradeDeleteButton from "@/components/grades/GradeDeleteButton";
 
 type ExamRow = {
   id: string;
@@ -33,32 +35,19 @@ export default async function SubjectPage({
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: rows }, { data: subjectRows }] = await Promise.all([
+  const [{ data: subjectRows }, { data: examsBySubject }] = await Promise.all([
+    supabase.from("subjects").select("name").eq("user_id", user!.id).order("name"),
     supabase
       .from("exams")
       .select(`
         id,
         exam_type,
         semesters!exam_semester ( year, semester_type ),
+        subjects ( name ),
         grade_records ( score, max_score, percentage, memo )
       `)
-      .eq("user_id", user!.id)
-      .eq("subjects.name", subject)
-      .order("created_at", { ascending: true }),
-    supabase.from("subjects").select("name").eq("user_id", user!.id).order("name"),
+      .eq("user_id", user!.id),
   ]);
-
-  /* subject 필터링 – joined subjects 컬럼 없이 서버에서 재필터 */
-  const { data: examsBySubject } = await supabase
-    .from("exams")
-    .select(`
-      id,
-      exam_type,
-      semesters!exam_semester ( year, semester_type ),
-      subjects ( name ),
-      grade_records ( score, max_score, percentage, memo )
-    `)
-    .eq("user_id", user!.id);
 
   const grades = ((examsBySubject ?? []) as (ExamRow & { subjects: { name: string } | { name: string }[] | null })[])
     .flatMap((r) => {
@@ -70,6 +59,7 @@ export default async function SubjectPage({
       if (!sem) return [];
       return [{
         examId: r.id,
+        subject,
         examType: r.exam_type as ExamType,
         score: grade.score,
         maxScore: grade.max_score,
@@ -92,7 +82,8 @@ export default async function SubjectPage({
   const latestSemester = semesterLabels[semesterLabels.length - 1];
 
   /* 과목별 시험 유형 × 학기 테이블 데이터 */
-  type Cell = { score: number; maxScore: number; percentage: number } | null;
+  type Grade = (typeof grades)[number];
+  type Cell = Grade | null;
   const tableData: Record<ExamType, Record<string, Cell>> = {
     midterm: {},
     final: {},
@@ -101,11 +92,7 @@ export default async function SubjectPage({
     other: {},
   };
   for (const g of grades) {
-    tableData[g.examType][g.semesterLabel] = {
-      score: g.score,
-      maxScore: g.maxScore,
-      percentage: g.percentage,
-    };
+    tableData[g.examType][g.semesterLabel] = g;
   }
 
   /* 차트 데이터 – 학기별 시험 유형 점수 */
@@ -142,7 +129,11 @@ export default async function SubjectPage({
       </div>
 
       {/* 그래프 영역 */}
-      <SubjectCharts chartData={chartData} pieData={pieData} examTypeLabels={Object.fromEntries(MAIN_EXAM_TYPES.map((et) => [et, examTypeLabels[et]]))} />
+      <SubjectCharts
+        chartData={chartData}
+        pieData={pieData}
+        examTypeLabels={Object.fromEntries(MAIN_EXAM_TYPES.map((et) => [et, examTypeLabels[et]]))}
+      />
 
       {/* 점수 테이블 */}
       <div className="rounded-2xl border bg-white overflow-x-auto">
@@ -173,13 +164,17 @@ export default async function SubjectPage({
                   return (
                     <td key={et} className="py-3 px-4 text-center">
                       {cell ? (
-                        <div>
+                        <div className="space-y-1.5">
                           <p className="font-semibold">
                             {cell.score} / {cell.maxScore}
                           </p>
                           <p className={`text-xs ${pctColor}`}>
                             {cell.percentage.toFixed(1)}%
                           </p>
+                          <div className="flex items-center justify-center gap-1">
+                            <GradeEditForm grade={cell} subjects={subjectNames} />
+                            <GradeDeleteButton examId={cell.examId} />
+                          </div>
                         </div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
@@ -204,6 +199,7 @@ export default async function SubjectPage({
                 <th className="pb-2 font-medium">유형</th>
                 <th className="pb-2 font-medium text-right">점수</th>
                 <th className="pb-2 font-medium text-right">백분율</th>
+                <th className="pb-2 font-medium text-right">관리</th>
               </tr>
             </thead>
             <tbody>
@@ -215,6 +211,12 @@ export default async function SubjectPage({
                     <td className="py-2.5">{examTypeLabels[g.examType]}</td>
                     <td className="py-2.5 text-right">{g.score} / {g.maxScore}</td>
                     <td className="py-2.5 text-right">{g.percentage.toFixed(1)}%</td>
+                    <td className="py-2.5">
+                      <div className="flex items-center justify-end gap-1">
+                        <GradeEditForm grade={g} subjects={subjectNames} />
+                        <GradeDeleteButton examId={g.examId} />
+                      </div>
+                    </td>
                   </tr>
                 ))}
             </tbody>

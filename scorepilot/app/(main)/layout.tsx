@@ -1,5 +1,6 @@
 import Nav from "@/components/layout/Nav";
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 export default async function MainLayout({
   children,
@@ -8,19 +9,18 @@ export default async function MainLayout({
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   let userName: string | null = null;
   let schoolLevel: "middle" | "high" | null = null;
 
-  if (user) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("name, school_level")
-      .eq("id", user.id)
-      .single();
-    userName = data?.name ?? null;
-    schoolLevel = (data?.school_level as "middle" | "high") ?? null;
-  }
+  const { data } = await supabase
+    .from("profiles")
+    .select("name, school_level")
+    .eq("id", user.id)
+    .single();
+  userName = data?.name ?? null;
+  schoolLevel = (data?.school_level as "middle" | "high") ?? null;
 
   return (
     <>

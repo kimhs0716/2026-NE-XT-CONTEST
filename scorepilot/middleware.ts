@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // 비로그인 상태에서 보호 경로 접근 시 로그인으로
-  const protectedPaths = ["/dashboard", "/grades", "/analytics", "/calendar"];
+  const protectedPaths = ["/dashboard", "/grades", "/analytics", "/strategy", "/calendar", "/mock-exam"];
   if (!user && protectedPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL("/login", request.url));
   }

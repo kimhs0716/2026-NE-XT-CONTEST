@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 type SubjectAvg = { subject: string; avg: number };
 
@@ -19,6 +20,7 @@ function computeSubjectAvgs(rows: { subject: string; percentage: number }[]): Su
 export default async function StrategyPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   const { data: rows } = await supabase
     .from("exams")
@@ -26,7 +28,7 @@ export default async function StrategyPage() {
       subjects ( name ),
       grade_records ( percentage )
     `)
-    .eq("user_id", user!.id);
+    .eq("user_id", user.id);
 
   const validRows = ((rows ?? []) as { subjects: { name: string } | { name: string }[] | null; grade_records: { percentage: number }[] }[]).flatMap((r) => {
     const pct = r.grade_records[0]?.percentage;

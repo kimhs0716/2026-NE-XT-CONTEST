@@ -577,7 +577,40 @@ BEGIN
   (high_id, '수능 영어 독해 스터디',   'study',      '2026-05-17', null,         '매주 토요일 오전 10시');
 
   -- ============================================================
-  -- 11. MOCK EXAM RECORDS (고등학생 전용 — 수능 모의고사)
+  -- 11. STUDY LOGS / TASKS
+  -- ============================================================
+  INSERT INTO public.study_logs
+    (user_id, subject_id, semester_id, study_date, duration_minutes, content, difficulty, concentration_level)
+  VALUES
+  -- 중학생 공부 기록
+  (mid_id, m_math, m_s5, '2026-05-12', 90,  '일차함수 오답 정리',       'hard',   4),
+  (mid_id, m_eng,  m_s5, '2026-05-11', 60,  '본문 암기와 단어 복습',     'normal', 5),
+  (mid_id, m_kor,  m_s5, '2026-05-10', 50,  '문학 작품 핵심 정리',       'normal', 4),
+  (mid_id, m_sci,  m_s5, '2026-05-09', 70,  '전기 단원 개념 복습',       'hard',   3),
+  (mid_id, m_soc,  m_s5, '2026-05-08', 40,  '지역사회 수행평가 자료 조사', 'easy',   4),
+  (mid_id, m_math, m_s5, '2026-05-07', 80,  '함수 그래프 문제 풀이',     'hard',   4),
+  -- 고등학생 공부 기록
+  (high_id, h_math, h_s5, '2026-05-12', 110, '수열 기출 문제 풀이',       'hard',   4),
+  (high_id, h_eng,  h_s5, '2026-05-11', 70,  '수능 영어 독해 지문 분석',  'normal', 5),
+  (high_id, h_kor,  h_s5, '2026-05-10', 80,  '문학 작품별 선지 분석',     'normal', 4),
+  (high_id, h_sci,  h_s5, '2026-05-09', 90,  '과학 취약 단원 복습',       'hard',   3),
+  (high_id, h_hist, h_s5, '2026-05-08', 45,  '한국사 연표 암기',          'easy',   4),
+  (high_id, h_math, h_s5, '2026-05-07', 100, '수학 오답노트 재풀이',      'hard',   4);
+
+  INSERT INTO public.study_tasks
+    (user_id, subject_id, semester_id, title, task_type, due_date, priority, is_completed, memo)
+  VALUES
+  -- 중학생 진행 중 할 일
+  (mid_id, m_math, m_s5, '수학 오답노트 2회독',      'review',          '2026-05-16', 'high',   false, '중간고사 전까지 완료'),
+  (mid_id, m_eng,  m_s5, '영어 단어 80개 암기',      'memorization',    '2026-05-15', 'medium', false, null),
+  (mid_id, m_sci,  m_s5, '과학 전기 단원 문제 풀이', 'problem_solving', '2026-05-17', 'medium', false, null),
+  -- 고등학생 진행 중 할 일
+  (high_id, h_math, h_s5, '수열 단원 기출 20문제',   'problem_solving', '2026-05-16', 'high',   false, '틀린 문제 표시'),
+  (high_id, h_eng,  h_s5, '영어 독해 지문 5개 분석', 'review',          '2026-05-17', 'medium', false, null),
+  (high_id, h_sci,  h_s5, '과학 취약 개념 정리',     'review',          '2026-05-18', 'high',   false, null);
+
+  -- ============================================================
+  -- 12. MOCK EXAM RECORDS (고등학생 전용 — 수능 모의고사)
   -- ============================================================
   INSERT INTO public.mock_exam_records (user_id, exam_year, exam_month, subject, raw_score, percentile, grade, target_score)
   VALUES
@@ -625,7 +658,7 @@ BEGIN
   (high_id, 2026, 3, '탐구1',  44, 70.0, 3, 50);
 
   -- ============================================================
-  -- 12. SCORE PREDICTIONS
+  -- 13. SCORE PREDICTIONS
   -- ============================================================
   INSERT INTO public.score_predictions
     (user_id, subject_id, predicted_score, prediction_target, model_type, confidence, basis)
