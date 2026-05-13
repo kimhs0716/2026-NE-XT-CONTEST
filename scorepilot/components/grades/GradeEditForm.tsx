@@ -5,7 +5,7 @@ import { updateGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
-  commonSubjects,
+  inferSubjectCategory,
   semesterTypeLabels,
   type ExamType,
   type SemesterType,
@@ -30,35 +30,30 @@ type Grade = {
   examType: ExamType;
   score: number;
   maxScore: number;
+  gradeLevel: string | null;
+  weight: number | null;
   semesterYear: number;
   semesterType: SemesterType;
   memo: string | null;
 };
 
-export default function GradeEditForm({ grade, subjects }: { grade: Grade; subjects: string[] }) {
+export default function GradeEditForm({ grade }: { grade: Grade }) {
   const [state, action, pending] = useActionState(updateGrade, null);
   const [open, setOpen] = useState(false);
 
-  const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
-  const isKnown = subjectOptions.includes(grade.subject);
-
-  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(
-    isKnown ? "select" : "custom"
-  );
-  const [selectedSubject, setSelectedSubject] = useState(isKnown ? grade.subject : "");
-  const [customSubject, setCustomSubject] = useState(isKnown ? "" : grade.subject);
   const [examType, setExamType] = useState(grade.examType);
   const [score, setScore] = useState(String(grade.score));
   const [maxScore, setMaxScore] = useState(String(grade.maxScore));
+  const [gradeLevel, setGradeLevel] = useState(grade.gradeLevel ?? "");
+  const [weight, setWeight] = useState(grade.weight == null ? "" : String(grade.weight));
   const [semesterYear, setSemesterYear] = useState(grade.semesterYear);
   const [semesterType, setSemesterType] = useState<SemesterType>(grade.semesterType);
   const [memo, setMemo] = useState(grade.memo ?? "");
 
   useEffect(() => {
-    if (state?.success) setOpen(false);
+    if (!state?.success) return;
+    queueMicrotask(() => setOpen(false));
   }, [state]);
-
-  const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -69,36 +64,13 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
         </DialogHeader>
         <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
           <input type="hidden" name="exam_id" value={grade.examId} />
-          <input type="hidden" name="subject_name" value={subjectName} />
+          <input type="hidden" name="subject_name" value={grade.subject} />
+          <input type="hidden" name="subject_category" value={inferSubjectCategory(grade.subject)} />
           <div className="space-y-2">
-            <Label>과목명<span className="text-red-500">*</span></Label>
-            <select
-              value={subjectMode === "custom" ? "__custom__" : selectedSubject}
-              onChange={(e) => {
-                if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
-              }}
-              className={selectClass}
-            >
-              <option value="">과목 선택</option>
-              {subjectOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-              <option value="__custom__">직접 입력...</option>
-            </select>
-            {subjectMode === "custom" && (
-              <Input
-                placeholder="과목명 입력"
-                value={customSubject}
-                onChange={(e) => setCustomSubject(e.target.value)}
-                autoFocus
-              />
-            )}
+            <Label>과목명</Label>
+            <div className="h-8 rounded-lg border bg-muted/30 px-2.5 py-1 text-sm font-medium">
+              {grade.subject}
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit_exam_type">시험 종류<span className="text-red-500">*</span></Label>
@@ -144,6 +116,32 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
                 step="0.01"
                 value={maxScore}
                 onChange={(e) => setMaxScore(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="edit_grade_level">등급</Label>
+              <Input
+                id="edit_grade_level"
+                name="grade_level"
+                placeholder="예: 1"
+                value={gradeLevel}
+                onChange={(e) => setGradeLevel(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_weight">반영비</Label>
+              <Input
+                id="edit_weight"
+                name="weight"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                placeholder="예: 30"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
               />
             </div>
           </div>

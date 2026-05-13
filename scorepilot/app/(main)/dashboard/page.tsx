@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { type SemesterType } from "@/lib/constants/grades";
+import DashboardCalendar from "@/components/dashboard/DashboardCalendar";
 
 type ExamRow = {
   exam_type: string;
@@ -114,10 +115,8 @@ export default async function DashboardPage() {
         .select("id, title, event_type, start_date, subjects(name)")
         .eq("user_id", user!.id)
         .eq("is_completed", false)
-        .gte("start_date", today)
-        .lte("start_date", twoWeeksLater)
         .order("start_date")
-        .limit(10),
+        .limit(300),
     ]);
 
   const schoolLevel = (profileData?.school_level as "middle" | "high") ?? null;
@@ -159,15 +158,10 @@ export default async function DashboardPage() {
       ? Math.round((mockGrades.reduce((a, b) => a + b, 0) / mockGrades.length) * 10) / 10
       : null;
 
-  const upcoming = (scheduleRows as ScheduleRow[] ?? []);
-
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
-  const cells: (number | null)[] = Array(firstDay).fill(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-  const weeks: (number | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  const schedules = (scheduleRows as ScheduleRow[] ?? []);
+  const upcoming = schedules.filter(
+    (schedule) => schedule.start_date >= today && schedule.start_date <= twoWeeksLater
+  ).slice(0, 10);
 
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-4">
@@ -189,49 +183,11 @@ export default async function DashboardPage() {
               전체 보기 →
             </Link>
           </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">{now.getFullYear()}년 {now.getMonth() + 1}월</span>
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
-                <div key={d} className="text-xs font-medium text-muted-foreground py-1 text-center">
-                  {d}
-                </div>
-              ))}
-              {weeks.map((week, rowIdx) =>
-                week.map((day, colIdx) => {
-                  const dateStr = day ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` : null;
-                  const dayEvents = dateStr ? upcoming.filter(s => s.start_date === dateStr) : [];
-                  return (
-                    <div
-                      key={`${rowIdx}-${colIdx}`}
-                      className="min-h-[80px] border rounded p-1 flex flex-col gap-1"
-                    >
-                      <div className="text-xs font-medium text-foreground">
-                        {day ?? ""}
-                      </div>
-                      <div className="flex-1 flex flex-col gap-0.5 text-[10px] min-h-0 overflow-hidden">
-                        {dayEvents.slice(0, 2).map((s, i) => (
-                          <div
-                            key={i}
-                            className={`truncate px-1 py-0.5 rounded ${EVENT_TYPE_COLOR[s.event_type] ?? EVENT_TYPE_COLOR.other}`}
-                          >
-                            {s.title}
-                          </div>
-                        ))}
-                        {dayEvents.length > 2 && (
-                          <div className="text-muted-foreground px-1">
-                            +{dayEvents.length - 2}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <DashboardCalendar
+            schedules={schedules}
+            initialYear={now.getFullYear()}
+            initialMonth={now.getMonth()}
+          />
         </div>
 
         {/* 오른쪽: 네비게이션 카드들 */}

@@ -34,11 +34,16 @@ export async function upsertMockExamRecord(_: unknown, formData: FormData) {
     if (error) { console.error("[upsertMockExamRecord]", error); return { error: "저장 중 오류가 발생했습니다." }; }
 
     revalidatePath("/mock-exam");
+    revalidatePath("/analytics");
     return { success: true };
   } catch (e) {
     console.error("[upsertMockExamRecord]", e);
     return { error: "저장 중 오류가 발생했습니다." };
   }
+}
+
+export async function saveMockExamRecord(formData: FormData) {
+  await upsertMockExamRecord(null, formData);
 }
 
 export async function deleteMockExamRecord(id: string) {
@@ -48,4 +53,5 @@ export async function deleteMockExamRecord(id: string) {
 
   await supabase.from("mock_exam_records").delete().eq("id", id).eq("user_id", user.id);
   revalidatePath("/mock-exam");
+  revalidatePath("/analytics");
 }

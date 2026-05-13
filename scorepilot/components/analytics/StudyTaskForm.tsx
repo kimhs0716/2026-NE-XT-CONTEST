@@ -57,32 +57,36 @@ export default function StudyTaskForm({
 
   useEffect(() => {
     if (state?.success) {
-      setOpen(false);
-      if (!task) {
-        setSubjectId(defaultSubjectId);
-        setTitle("");
-        setTaskType("review");
-        setDueDate("");
-        setPriority("medium");
-        setMemo("");
-      }
-      router.refresh();
+      queueMicrotask(() => {
+        setOpen(false);
+        if (!task) {
+          setSubjectId(defaultSubjectId);
+          setTitle("");
+          setTaskType("review");
+          setDueDate("");
+          setPriority("medium");
+          setMemo("");
+        }
+        router.refresh();
+      });
     }
   }, [state, defaultSubjectId, task, router]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant={task ? "ghost" : "outline"}>{triggerLabel ?? (task ? "수정" : "+ 할 일")}</Button>} />
+      <DialogTrigger
+        render={<Button size="sm" variant={task ? "ghost" : "outline"}>{triggerLabel ?? (task ? "수정" : "+ 할 일")}</Button>}
+      />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{task ? "공부 할 일 수정" : "공부 할 일 추가"}</DialogTitle>
         </DialogHeader>
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            startTransition(() => action(new FormData(e.currentTarget)));
+          onSubmit={(event) => {
+            event.preventDefault();
+            startTransition(() => action(new FormData(event.currentTarget)));
           }}
-          className="space-y-4 mt-2"
+          className="mt-2 space-y-4"
         >
           {task && <input type="hidden" name="study_task_id" value={task.id} />}
           <div className="space-y-2">
@@ -90,7 +94,7 @@ export default function StudyTaskForm({
             <select
               name="subject_id"
               value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
+              onChange={(event) => setSubjectId(event.target.value)}
               className={selectClass}
             >
               <option value="">과목 없음</option>
@@ -108,7 +112,7 @@ export default function StudyTaskForm({
               id="task-title"
               name="title"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(event) => setTitle(event.target.value)}
               placeholder="예: 오답노트 2회독"
               required
             />
@@ -120,7 +124,7 @@ export default function StudyTaskForm({
               <select
                 name="task_type"
                 value={taskType}
-                onChange={(e) => setTaskType(e.target.value)}
+                onChange={(event) => setTaskType(event.target.value)}
                 className={selectClass}
               >
                 <option value="homework">숙제</option>
@@ -136,7 +140,7 @@ export default function StudyTaskForm({
               <select
                 name="priority"
                 value={priority}
-                onChange={(e) => setPriority(e.target.value)}
+                onChange={(event) => setPriority(event.target.value)}
                 className={selectClass}
               >
                 <option value="low">낮음</option>
@@ -153,7 +157,7 @@ export default function StudyTaskForm({
               name="due_date"
               type="date"
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
+              onChange={(event) => setDueDate(event.target.value)}
             />
           </div>
 
@@ -163,7 +167,7 @@ export default function StudyTaskForm({
               id="task-memo"
               name="memo"
               value={memo}
-              onChange={(e) => setMemo(e.target.value)}
+              onChange={(event) => setMemo(event.target.value)}
               placeholder="준비 범위나 기준"
             />
           </div>

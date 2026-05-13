@@ -61,32 +61,36 @@ export default function StudyLogForm({
 
   useEffect(() => {
     if (state?.success) {
-      setOpen(false);
-      if (!log) {
-        setSubjectId(defaultSubjectId);
-        setStudyDate(todayString());
-        setDuration("");
-        setDifficulty("normal");
-        setConcentration("3");
-        setContent("");
-      }
-      router.refresh();
+      queueMicrotask(() => {
+        setOpen(false);
+        if (!log) {
+          setSubjectId(defaultSubjectId);
+          setStudyDate(todayString());
+          setDuration("");
+          setDifficulty("normal");
+          setConcentration("3");
+          setContent("");
+        }
+        router.refresh();
+      });
     }
   }, [state, defaultSubjectId, log, router]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant={log ? "ghost" : "default"}>{triggerLabel ?? (log ? "수정" : "+ 공부 기록")}</Button>} />
+      <DialogTrigger
+        render={<Button size="sm" variant={log ? "ghost" : "default"}>{triggerLabel ?? (log ? "수정" : "+ 공부 기록")}</Button>}
+      />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{log ? "공부 기록 수정" : "공부 기록 추가"}</DialogTitle>
         </DialogHeader>
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            startTransition(() => action(new FormData(e.currentTarget)));
+          onSubmit={(event) => {
+            event.preventDefault();
+            startTransition(() => action(new FormData(event.currentTarget)));
           }}
-          className="space-y-4 mt-2"
+          className="mt-2 space-y-4"
         >
           {log && <input type="hidden" name="study_log_id" value={log.id} />}
           <div className="space-y-2">
@@ -94,7 +98,7 @@ export default function StudyLogForm({
             <select
               name="subject_id"
               value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
+              onChange={(event) => setSubjectId(event.target.value)}
               className={selectClass}
             >
               <option value="">과목 없음</option>
@@ -114,7 +118,7 @@ export default function StudyLogForm({
                 name="study_date"
                 type="date"
                 value={studyDate}
-                onChange={(e) => setStudyDate(e.target.value)}
+                onChange={(event) => setStudyDate(event.target.value)}
                 required
               />
             </div>
@@ -127,7 +131,7 @@ export default function StudyLogForm({
                 min="0"
                 placeholder="90"
                 value={duration}
-                onChange={(e) => setDuration(e.target.value)}
+                onChange={(event) => setDuration(event.target.value)}
                 required
               />
             </div>
@@ -139,7 +143,7 @@ export default function StudyLogForm({
               <select
                 name="difficulty"
                 value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value)}
+                onChange={(event) => setDifficulty(event.target.value)}
                 className={selectClass}
               >
                 <option value="easy">쉬움</option>
@@ -152,7 +156,7 @@ export default function StudyLogForm({
               <select
                 name="concentration_level"
                 value={concentration}
-                onChange={(e) => setConcentration(e.target.value)}
+                onChange={(event) => setConcentration(event.target.value)}
                 className={selectClass}
               >
                 {[1, 2, 3, 4, 5].map((value) => (
@@ -171,7 +175,7 @@ export default function StudyLogForm({
               name="content"
               placeholder="예: 오답 정리, 개념 복습"
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(event) => setContent(event.target.value)}
             />
           </div>
 

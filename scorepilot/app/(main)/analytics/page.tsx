@@ -1,6 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
-import { formatSemester, type SemesterType } from "@/lib/constants/grades";
-import GradeChart from "@/components/analytics/GradeChart";
+﻿import { createClient } from "@/lib/supabase/server";
+import { formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
+import AnalysisGradeTrendChart, { type GradeTrendSourceRow } from "@/components/analytics/AnalysisGradeTrendChart";
 import PredictionSection from "@/components/analytics/PredictionSection";
 import SubjectAnalysisCard from "@/components/analytics/SubjectAnalysisCard";
 import AiFeedbackCard from "@/components/analytics/AiFeedbackCard";
@@ -16,12 +16,12 @@ import type { GradePoint, SubjectAnalysis } from "@/lib/analytics/types";
 
 type ExamRow = {
   exam_type: string;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
   semesters:
     | { year: number; semester_type: string }
     | { year: number; semester_type: string }[]
     | null;
-  grade_records: { percentage: number; score: number; max_score: number }[];
+  grade_records: { percentage: number; score: number; max_score: number; grade_level: string | null }[];
   created_at: string;
 };
 
@@ -33,7 +33,7 @@ type StudyLogRow = {
   difficulty: string | null;
   concentration_level: number | null;
   content: string | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
 };
 
 type StudyTaskRow = {
@@ -45,13 +45,26 @@ type StudyTaskRow = {
   priority: string | null;
   is_completed: boolean;
   memo: string | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
 };
 
 type SubjectRow = {
   id: string;
   name: string;
+  category: string | null;
 };
+
+type MockExamRow = {
+  exam_year: number;
+  exam_month: number;
+  subject: string;
+  raw_score: number | null;
+  percentile: number | null;
+  grade: number | null;
+  target_score: number | null;
+};
+
+const GRADE_BASED_MOCK_SUBJECTS = new Set(["영어", "한국사"]);
 
 function semesterOrder(year: number, type: SemesterType): number {
   return year * 10 + (type === "semester_2" ? 2 : 1);
@@ -83,31 +96,55 @@ const priorityLabels: Record<string, string> = {
 };
 
 function buildChartData(
-  rows: { semester: string; semOrder: number; subject: string; percentage: number }[],
+  rows: { semester: string; semOrder: number; trendOrder: number; subject: string; percentage: number }[],
 ) {
   const subjects = [...new Set(rows.map((r) => r.subject))];
-  const bySem = new Map<string, { semOrder: number; scores: Record<string, number | null> }>();
-  for (const r of rows) {
-    if (!bySem.has(r.semester)) {
-      bySem.set(r.semester, {
-        semOrder: r.semOrder,
-        scores: Object.fromEntries(subjects.map((s) => [s, null])),
-      });
-    }
-    bySem.get(r.semester)!.scores[r.subject] = r.percentage;
-  }
-  const data = [...bySem.entries()]
-    .sort(([, a], [, b]) => a.semOrder - b.semOrder)
-    .map(([semester, { scores }]) => {
-      const values = Object.values(scores).filter((v): v is number => v !== null);
-      const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-      return {
-        semester,
-        ...scores,
-        "전체 평균": avg !== null ? Math.round(avg * 10) / 10 : null,
-      };
-    });
+  const sortedRows = [...rows].sort((a, b) => a.trendOrder - b.trendOrder);
+  const semesterTotals = sortedRows.reduce<Record<string, number>>((acc, row) => {
+    acc[row.semester] = (acc[row.semester] ?? 0) + 1;
+    return acc;
+  }, {});
+  const semesterCounts: Record<string, number> = {};
+  const data = sortedRows.map((row) => {
+    semesterCounts[row.semester] = (semesterCounts[row.semester] ?? 0) + 1;
+    const label = semesterTotals[row.semester] > 1
+      ? `${row.semester} ${semesterCounts[row.semester]}차`
+      : row.semester;
+    return {
+      semester: label,
+      ...Object.fromEntries(subjects.map((subject) => [subject, subject === row.subject ? row.percentage : null])),
+      "전체 평균": row.percentage,
+    };
+  });
   return { data, subjects };
+}
+
+function withTrendOrder<T extends { semOrder: number; createdAt: string }>(rows: T[]): (T & { trendOrder: number })[] {
+  return [...rows]
+    .sort((a, b) => a.semOrder - b.semOrder || a.createdAt.localeCompare(b.createdAt))
+    .map((row, index) => ({ ...row, trendOrder: row.semOrder * 1000 + index }));
+}
+
+function mockExamOrder(row: MockExamRow): number {
+  return row.exam_year * 100 + row.exam_month;
+}
+
+function formatMockMainValue(row: MockExamRow): string {
+  if (GRADE_BASED_MOCK_SUBJECTS.has(row.subject)) {
+    return row.grade != null ? `${row.grade}등급` : "-";
+  }
+  return row.percentile != null ? `${Number(row.percentile.toFixed(1)).toLocaleString("ko-KR")}%` : "-";
+}
+
+function formatMockSubValue(row: MockExamRow): string {
+  const parts: string[] = [];
+  if (row.raw_score != null) parts.push(`${row.raw_score}점`);
+  if (row.target_score != null) parts.push(`목표 ${row.target_score}점`);
+  return parts.length > 0 ? parts.join(" · ") : "원점수 없음";
+}
+
+function resolveCategory(subject: { name: string; category: string | null } | undefined): string {
+  return subject?.category?.trim() || "미분류";
 }
 
 export default async function AnalyticsPage() {
@@ -120,11 +157,12 @@ export default async function AnalyticsPage() {
     { data: studyLogRows },
     { data: studyTaskRows },
     { data: subjectRows },
+    { data: mockExamRows },
   ] = await Promise.all([
     supabase
       .from("exams")
       .select(
-        `exam_type, subjects ( name ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score ), created_at`,
+        `exam_type, subjects ( name, category ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score, grade_level ), created_at`,
       )
       .eq("user_id", user!.id)
       .order("created_at", { ascending: false }),
@@ -136,55 +174,76 @@ export default async function AnalyticsPage() {
     supabase
       .from("study_logs")
       .select(
-        `id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name )`,
+        `id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name, category )`,
       )
       .eq("user_id", user!.id)
       .order("study_date", { ascending: false })
       .limit(8),
     supabase
       .from("study_tasks")
-      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name )`)
+      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name, category )`)
       .eq("user_id", user!.id)
       .eq("is_completed", false)
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(3),
     supabase
       .from("subjects")
-      .select("id, name")
+      .select("id, name, category")
       .eq("user_id", user!.id)
       .order("name"),
+    supabase
+      .from("mock_exam_records")
+      .select("exam_year, exam_month, subject, raw_score, percentile, grade, target_score")
+      .eq("user_id", user!.id)
+      .order("exam_year", { ascending: false })
+      .order("exam_month", { ascending: false }),
   ]);
 
-  // ── 유효 성적 데이터 ──────────────────────────────────────────
+  // 유효한 성적 데이터
+  const trendRows: GradeTrendSourceRow[] = [];
   const validRows = (rows as ExamRow[] ?? []).flatMap((r) => {
     const pct = r.grade_records[0]?.percentage;
     if (pct == null) return [];
-    const name = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-    if (!name) return [];
+    const subject = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    if (!subject?.name) return [];
     const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
     if (!sem) return [];
     const type = sem.semester_type as SemesterType;
+    const category = resolveCategory(subject);
+    const semesterKey = `${sem.year}-${type}`;
+    trendRows.push({
+      subjectName: subject.name,
+      category,
+      semesterKey,
+      semesterLabel: formatSemester(sem.year, type),
+      semOrder: semesterOrder(sem.year, type),
+      examType: r.exam_type as ExamType,
+      gradeLevel: r.grade_records[0].grade_level,
+      createdAt: r.created_at,
+    });
     return [{
-      subject: name,
+      subject: category,
       percentage: Number(pct),
       score: r.grade_records[0].score,
       maxScore: r.grade_records[0].max_score,
       semester: formatSemester(sem.year, type),
       semOrder: semesterOrder(sem.year, type),
+      createdAt: r.created_at,
     }];
   });
 
-  const chart = buildChartData(validRows);
+  const orderedRows = withTrendOrder(validRows);
+  const chart = buildChartData(orderedRows);
   const subjectNames = [...chart.subjects].sort((a, b) => a.localeCompare(b, "ko"));
   const subjectOptions = [...new Map(
     ((subjectRows ?? []) as SubjectRow[]).map((subject) => [subject.name, subject]),
   ).values()];
 
-  // ── 과목별 분석 ───────────────────────────────────────────────
+  // 분류별 분석
   const subjectGradeMap = new Map<string, GradePoint[]>();
-  for (const r of validRows) {
+  for (const r of orderedRows) {
     if (!subjectGradeMap.has(r.subject)) subjectGradeMap.set(r.subject, []);
-    subjectGradeMap.get(r.subject)!.push({ percentage: r.percentage, semOrder: r.semOrder });
+    subjectGradeMap.get(r.subject)!.push({ percentage: r.percentage, semOrder: r.trendOrder });
   }
 
   const subjectAnalysisList: SubjectAnalysis[] = [...subjectGradeMap.entries()].map(
@@ -201,14 +260,14 @@ export default async function AnalyticsPage() {
       a.metrics.subject.localeCompare(b.metrics.subject),
   );
 
-  // ── 요약 수치 (차트 헤더용) ───────────────────────────────────
+  // 요약 수치
   const allAvgs = subjectAnalysisList.map((s) => s.metrics.average);
   const overallAvg =
     allAvgs.length > 0
       ? Math.round((allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length) * 10) / 10
       : null;
 
-  // ── 예측 데이터 ───────────────────────────────────────────────
+  // 예측 데이터
   const predictions = (predRows ?? [])
     .map((r) => {
       const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
@@ -230,35 +289,60 @@ export default async function AnalyticsPage() {
 
   const recentStudyLogs = ((studyLogRows ?? []) as StudyLogRow[]).map((r) => {
     const subject = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-    return { ...r, subject: subject ?? "-" };
+    const category = resolveCategory(Array.isArray(r.subjects) ? r.subjects[0] : r.subjects ?? undefined);
+    return { ...r, subject: subject ? `${category} · ${subject}` : "-" };
   });
 
   const pendingStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[]).map((r) => {
     const subject = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-    return { ...r, subject: subject ?? null };
+    const category = resolveCategory(Array.isArray(r.subjects) ? r.subjects[0] : r.subjects ?? undefined);
+    return { ...r, subject: subject ? `${category} · ${subject}` : null };
   });
 
+  const mockRecords = ((mockExamRows ?? []) as MockExamRow[]).sort(
+    (a, b) => mockExamOrder(b) - mockExamOrder(a) || a.subject.localeCompare(b.subject, "ko"),
+  );
+  const latestMockOrder = mockRecords[0] ? mockExamOrder(mockRecords[0]) : null;
+  const latestMockRows = latestMockOrder == null
+    ? []
+    : mockRecords.filter((row) => mockExamOrder(row) === latestMockOrder);
+  const mockPercentiles = mockRecords
+    .filter((row) => !GRADE_BASED_MOCK_SUBJECTS.has(row.subject) && row.percentile != null)
+    .map((row) => row.percentile as number);
+  const mockGrades = mockRecords
+    .filter((row) => GRADE_BASED_MOCK_SUBJECTS.has(row.subject) && row.grade != null)
+    .map((row) => row.grade as number);
+  const mockAveragePercentile = mockPercentiles.length > 0
+    ? Math.round((mockPercentiles.reduce((a, b) => a + b, 0) / mockPercentiles.length) * 10) / 10
+    : null;
+  const mockAverageGrade = mockGrades.length > 0
+    ? Math.round((mockGrades.reduce((a, b) => a + b, 0) / mockGrades.length) * 10) / 10
+    : null;
+  const latestMockLabel = latestMockRows[0]
+    ? `${latestMockRows[0].exam_year}년 ${latestMockRows[0].exam_month}월`
+    : null;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 space-y-6">
-      {/* 헤더 */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="w-full max-w-7xl mx-auto px-4 space-y-6">
+      {/* ?ㅻ뜑 */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">분석</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            과목별 성적 추이와 AI 맞춤 피드백을 확인하세요
+            과목 분류별 성적 추이와 AI 맞춤 피드백을 확인하세요.
           </p>
         </div>
         <AnalysisModeSelect subjects={subjectNames} />
       </div>
 
       {/* 2컬럼 메인 레이아웃 */}
-      <div className="grid grid-cols-[3fr_2fr] gap-6 items-start">
+      <div className="grid grid-cols-1 gap-6 items-start xl:grid-cols-[minmax(0,3fr)_minmax(320px,2fr)]">
 
-        {/* ── 왼쪽: 종합 성적 + 학습 피드백 ── */}
-        <div className="space-y-6">
+        {/* 왼쪽: 종합 성적 + 학습 피드백 */}
+        <div className="min-w-0 space-y-6">
 
-          {/* 종합 성적 (꺾은선 그래프) */}
-          <div className="rounded-2xl border bg-white p-6">
+          {/* 종합 성적 */}
+          <div className="min-w-0 rounded-2xl border bg-white p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold">종합 성적</h2>
               {overallAvg !== null && (
@@ -267,18 +351,55 @@ export default async function AnalyticsPage() {
                 </span>
               )}
             </div>
-            <GradeChart data={chart.data} subjects={chart.subjects} />
+            <AnalysisGradeTrendChart rows={trendRows} categories={chart.subjects} />
+          </div>
+
+          {/* 모의고사 분석 */}
+          <div className="min-w-0 rounded-2xl border bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-base font-semibold">모의고사 분석</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {latestMockLabel ? `${latestMockLabel} 기준` : "모의고사 성적을 입력하면 표시됩니다."}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full bg-muted px-2.5 py-1">
+                  백분위 평균 {mockAveragePercentile != null ? `${mockAveragePercentile}%` : "-"}
+                </span>
+                <span className="rounded-full bg-muted px-2.5 py-1">
+                  등급 평균 {mockAverageGrade != null ? `${mockAverageGrade}등급` : "-"}
+                </span>
+              </div>
+            </div>
+            {latestMockRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                모의고사 성적을 등록하면 최근 회차 분석이 표시됩니다.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                {latestMockRows.map((row) => (
+                  <div key={row.subject} className="rounded-xl border bg-white px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">{row.subject}</span>
+                      <span className="text-base font-bold">{formatMockMainValue(row)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{formatMockSubValue(row)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 학습 피드백 */}
-          <div className="rounded-2xl border bg-white p-6">
+          <div className="min-w-0 rounded-2xl border bg-white p-6">
             <h2 className="text-base font-semibold mb-4">학습 피드백</h2>
             <div className="mb-4">
               <AiFeedbackCard />
             </div>
             {subjectAnalysisList.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
-                성적을 등록하면 과목별 피드백이 표시됩니다.
+                성적을 등록하면 분류별 피드백이 표시됩니다.
               </p>
             ) : (
               <div className="space-y-3">
@@ -294,8 +415,8 @@ export default async function AnalyticsPage() {
 
         </div>
 
-        {/* ── 오른쪽: 최근 공부 기록 + AI 성적 예측 ── */}
-        <div className="space-y-6 sticky top-24">
+        {/* 오른쪽: 최근 공부 기록 + AI 성적 예측 */}
+        <div className="min-w-0 space-y-6 xl:sticky xl:top-24">
 
           {/* 최근 공부 기록 */}
           <div className="rounded-2xl border bg-white p-6">
@@ -361,7 +482,7 @@ export default async function AnalyticsPage() {
             {pendingStudyTasks.length > 0 && (
               <div className="mt-4 border-t pt-4">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-muted-foreground">진행 중 할 일</p>
+                  <p className="text-xs font-semibold text-muted-foreground">진행 중인 할 일</p>
                   <StudyTaskForm subjects={subjectOptions} />
                 </div>
                 <div className="space-y-2">
