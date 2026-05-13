@@ -17,6 +17,29 @@ type ExamRow = {
   grade_records: { percentage: number }[];
 };
 
+type StudyLogRow = {
+  study_date: string;
+  duration_minutes: number | null;
+  concentration_level: number | null;
+  subjects: { name: string } | { name: string }[] | null;
+};
+
+type StudyTaskRow = {
+  title: string;
+  due_date: string | null;
+  is_completed: boolean;
+  priority: string | null;
+  subjects: { name: string } | { name: string }[] | null;
+};
+
+type ScheduleRow = {
+  title: string;
+  event_type: string;
+  start_date: string;
+  is_completed: boolean;
+  subjects: { name: string } | { name: string }[] | null;
+};
+
 type StrategyInsight = {
   subject: string;
   average: number;
@@ -33,6 +56,42 @@ type StrategyInsight = {
   basis: string | null;
   latestSemester: string;
   trend: string;
+};
+
+type PlanMode = "exam" | "task" | "routine";
+
+type SubjectPlanSignal = {
+  subject: string;
+  riskLevel: RiskLevel;
+  riskScore: number;
+  studyDeficitScore: number;
+  concentrationPenalty: number;
+  examUrgencyScore: number;
+  taskUrgencyScore: number;
+  priorityScore: number;
+  reasons: string[];
+  recentStudyMinutes: number;
+  avgConcentration: number | null;
+  examDaysLeft: number | null;
+  taskDaysLeft: number | null;
+  targetMinutes: number;
+  recommendedAction: string;
+  latestScore: number;
+  trend: string;
+  riskReason: string;
+  examTitle: string | null;
+  taskTitle: string | null;
+  taskPriority: string | null;
+};
+
+type WeeklyPlanItem = {
+  title: string;
+  description: string;
+  subject: string;
+  action: string;
+  durationMinutes: number;
+  reason: string;
+  priority: "highest" | "normal" | "maintenance";
 };
 
 const riskConfig: Record<RiskLevel, { label: string; cls: string }> = {
@@ -58,6 +117,24 @@ const subjectPalette = [
   "bg-indigo-100 text-indigo-700",
 ];
 
+const planModeConfig: Record<PlanMode, { label: string; cls: string; description: string }> = {
+  exam: {
+    label: "시험 모드",
+    cls: "bg-rose-100 text-rose-700",
+    description: "14일 이내 시험이 있어 시험 임박도를 최우선으로 반영합니다.",
+  },
+  task: {
+    label: "과제 모드",
+    cls: "bg-amber-100 text-amber-700",
+    description: "시험은 없지만 마감 임박 과제가 있어 제출 우선순위를 높입니다.",
+  },
+  routine: {
+    label: "루틴 모드",
+    cls: "bg-sky-100 text-sky-700",
+    description: "시험/과제가 없어서 성적 위험도와 최근 공부 패턴을 중심으로 잡습니다.",
+  },
+};
+
 function subjectBadgeClass(subject: string): string {
   const hash = [...subject].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   return subjectPalette[hash % subjectPalette.length];
@@ -76,6 +153,40 @@ function semOrderOf(year: number, type: SemesterType): number {
   return year * 10 + (type === "semester_2" ? 2 : 1);
 }
 
+function extractSubjectName(subjects: { name: string } | { name: string }[] | null): string | null {
+  if (!subjects) return null;
+  return Array.isArray(subjects) ? subjects[0]?.name ?? null : subjects.name;
+}
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+function getTodayUtcMidnight(): number {
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+}
+
+function parseDateOnly(dateStr: string): number {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function daysUntil(dateStr: string): number {
+  return Math.round((parseDateOnly(dateStr) - getTodayUtcMidnight()) / MS_PER_DAY);
+}
+
+function daysSince(dateStr: string): number {
+  return Math.round((getTodayUtcMidnight() - parseDateOnly(dateStr)) / MS_PER_DAY);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function isUpcomingExamSchedule(row: ScheduleRow): boolean {
+  if (row.is_completed) return false;
+  return row.event_type === "exam" || row.event_type === "mock_exam";
+}
+
 function computeStrategyInsights(rows: ExamRow[]): StrategyInsight[] {
   const map = new Map<
     string,
@@ -85,7 +196,7 @@ function computeStrategyInsights(rows: ExamRow[]): StrategyInsight[] {
   for (const r of rows) {
     const pct = r.grade_records[0]?.percentage;
     if (pct == null) continue;
-    const name = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+    const name = extractSubjectName(r.subjects);
     if (!name) continue;
     const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
     if (!sem) continue;
@@ -132,12 +243,331 @@ function computeStrategyInsights(rows: ExamRow[]): StrategyInsight[] {
     .sort((a, b) => a.priority - b.priority || a.average - b.average || a.subject.localeCompare(b.subject, "ko"));
 }
 
+function getRiskScore(riskLevel: RiskLevel): number {
+  if (riskLevel === "high") return 1;
+  if (riskLevel === "medium") return 0.6;
+  if (riskLevel === "low") return 0.2;
+  return 0.35;
+}
+
+function getTargetMinutes(riskLevel: RiskLevel, examDaysLeft: number | null): number {
+  let targetMinutes = riskLevel === "high" ? 180 : riskLevel === "medium" ? 120 : 60;
+  if (examDaysLeft !== null && examDaysLeft <= 7) targetMinutes *= 1.5;
+  if (examDaysLeft !== null && examDaysLeft <= 3) targetMinutes *= 2;
+  return targetMinutes;
+}
+
+function getConcentrationPenalty(avgConcentration: number | null): number {
+  if (avgConcentration === null) return 0;
+  if (avgConcentration < 2.5) return 0.25;
+  if (avgConcentration < 3.5) return 0.1;
+  return 0;
+}
+
+function getExamUrgencyScore(daysLeft: number | null): number {
+  if (daysLeft === null || daysLeft < 0 || daysLeft > 14) return 0;
+  return (14 - daysLeft) / 14;
+}
+
+function getTaskUrgencyScore(daysLeft: number | null): number {
+  if (daysLeft === null || daysLeft < 0 || daysLeft > 7) return 0;
+  return (7 - daysLeft) / 7;
+}
+
+function getMode(upcomingExamCount: number, urgentTaskCount: number): PlanMode {
+  if (upcomingExamCount > 0) return "exam";
+  if (urgentTaskCount > 0) return "task";
+  return "routine";
+}
+
+function buildAction(signal: SubjectPlanSignal, mode: PlanMode, rank: number): string {
+  if (signal.examDaysLeft !== null && signal.examDaysLeft <= 3) {
+    return "시험 범위 핵심 개념 1회독 + 틀린 문제 5개 정리";
+  }
+
+  if (signal.taskDaysLeft !== null && signal.taskDaysLeft <= 2) {
+    return "제출 요건 확인 후 과제 완료";
+  }
+
+  if (signal.riskLevel === "high" && signal.recentStudyMinutes === 0) {
+    return "개념 정리 1회독 + 대표 문제 10개";
+  }
+
+  if (mode === "exam") {
+    if (rank === 0) return "시험 범위 핵심 개념 1회독 + 오답 5개 정리";
+    return "이번 주 3회, 각 30분씩 오답 유형 반복";
+  }
+
+  if (mode === "task") {
+    if (rank === 0) return "마감 요건 확인 후 과제 초안 완성";
+    return "제출 전 체크리스트로 누락 항목 점검";
+  }
+
+  if (signal.riskLevel === "low") {
+    return "시험 직전 1회 점검 + 취약 파트만 복습";
+  }
+
+  if (signal.riskLevel === "medium") {
+    return "이번 주 3회, 각 30분씩 오답 유형 반복";
+  }
+
+  if (signal.recentStudyMinutes < 60) {
+    return "짧은 개념 복습 + 대표 문제 5개";
+  }
+
+  return "유지 학습 중심으로 꾸준히 복습";
+}
+
+function buildWeeklyPlanItem(signal: SubjectPlanSignal, mode: PlanMode, rank: number): WeeklyPlanItem {
+  const hasExamDeadline = signal.examDaysLeft !== null && signal.examDaysLeft >= 0;
+  const hasTaskDeadline = signal.taskDaysLeft !== null && signal.taskDaysLeft >= 0;
+  const deadlineLabel = hasExamDeadline
+    ? `D-${signal.examDaysLeft}`
+    : hasTaskDeadline
+      ? `D-${signal.taskDaysLeft}`
+      : null;
+
+  const durationMinutes =
+    rank === 0
+      ? signal.examDaysLeft !== null && signal.examDaysLeft <= 3
+        ? 40
+        : signal.taskDaysLeft !== null && signal.taskDaysLeft <= 2
+          ? 35
+          : 30
+      : rank === 1
+        ? 30
+        : 20;
+
+  const title = (() => {
+    if (signal.taskDaysLeft !== null && signal.taskDaysLeft <= 2) {
+      return `${signal.subject} 과제 ${deadlineLabel ?? "오늘"} 처리`;
+    }
+    if (signal.examDaysLeft !== null && signal.examDaysLeft <= 3) {
+      return `${signal.subject} ${deadlineLabel ?? "오늘"} 집중`;
+    }
+    if (signal.riskLevel === "high") {
+      return `오늘 ${signal.subject} ${durationMinutes}분 먼저`;
+    }
+    if (signal.riskLevel === "medium") {
+      return `${signal.subject} ${durationMinutes}분 반복`;
+    }
+    return `${signal.subject} 유지 ${durationMinutes}분`;
+  })();
+
+  const descriptionParts = [
+    signal.reasons[0] || signal.riskReason || `${signal.subject}의 현재 상태를 점검하세요.`,
+    signal.recentStudyMinutes === 0 ? "최근 7일 공부 기록이 없어 우선 배치했습니다." : null,
+    signal.avgConcentration !== null && signal.avgConcentration < 3.5
+      ? `집중도 평균 ${signal.avgConcentration.toFixed(1)}점이라 학습 방식도 함께 조정합니다.`
+      : null,
+  ].filter((part): part is string => Boolean(part));
+
+  const reason = signal.reasons.join(" · ") || signal.riskReason || "분석 근거 없음";
+
+  return {
+    title,
+    description: descriptionParts.join(" "),
+    subject: signal.subject,
+    action: buildAction(signal, mode, rank),
+    durationMinutes,
+    reason,
+    priority: rank === 0 ? "highest" : rank === 2 ? "maintenance" : "normal",
+  };
+}
+
+function buildSubjectPlanSignals(params: {
+  insights: StrategyInsight[];
+  studyLogs: StudyLogRow[];
+  studyTasks: StudyTaskRow[];
+  schedules: ScheduleRow[];
+}): SubjectPlanSignal[] {
+  const { insights, studyLogs, studyTasks, schedules } = params;
+  const buckets = new Map<
+    string,
+    {
+      latestInsight: StrategyInsight | null;
+      recentStudyMinutes: number;
+      concentrationSum: number;
+      concentrationCount: number;
+      examDaysLeft: number | null;
+      examTitle: string | null;
+      taskDaysLeft: number | null;
+      taskTitle: string | null;
+      taskPriority: string | null;
+    }
+  >();
+
+  const ensureBucket = (subject: string) => {
+    if (!buckets.has(subject)) {
+      buckets.set(subject, {
+        latestInsight: null,
+        recentStudyMinutes: 0,
+        concentrationSum: 0,
+        concentrationCount: 0,
+        examDaysLeft: null,
+        examTitle: null,
+        taskDaysLeft: null,
+        taskTitle: null,
+        taskPriority: null,
+      });
+    }
+    return buckets.get(subject)!;
+  };
+
+  for (const insight of insights) {
+    ensureBucket(insight.subject).latestInsight = insight;
+  }
+
+  for (const log of studyLogs) {
+    const subject = extractSubjectName(log.subjects) ?? "공통";
+    const bucket = ensureBucket(subject);
+    const recentDays = daysSince(log.study_date);
+    const duration = log.duration_minutes ?? 0;
+
+    if (recentDays >= 0 && recentDays <= 7) {
+      bucket.recentStudyMinutes += duration;
+    }
+    if (recentDays >= 0 && recentDays <= 14 && log.concentration_level != null) {
+      bucket.concentrationSum += log.concentration_level;
+      bucket.concentrationCount += 1;
+    }
+  }
+
+  for (const schedule of schedules) {
+    if (!isUpcomingExamSchedule(schedule)) continue;
+    const daysLeft = daysUntil(schedule.start_date);
+    if (daysLeft < 0 || daysLeft > 14) continue;
+
+    const subject = extractSubjectName(schedule.subjects) ?? "공통";
+    const bucket = ensureBucket(subject);
+    if (bucket.examDaysLeft === null || daysLeft < bucket.examDaysLeft) {
+      bucket.examDaysLeft = daysLeft;
+      bucket.examTitle = schedule.title;
+    }
+  }
+
+  for (const task of studyTasks) {
+    if (task.is_completed || !task.due_date) continue;
+    const daysLeft = daysUntil(task.due_date);
+    if (daysLeft < 0 || daysLeft > 7) continue;
+
+    const subject = extractSubjectName(task.subjects) ?? "공통";
+    const bucket = ensureBucket(subject);
+    if (bucket.taskDaysLeft === null || daysLeft < bucket.taskDaysLeft) {
+      bucket.taskDaysLeft = daysLeft;
+      bucket.taskTitle = task.title;
+      bucket.taskPriority = task.priority;
+    }
+  }
+
+  return [...buckets.entries()]
+    .map(([subject, bucket]) => {
+      const insight = bucket.latestInsight;
+      const riskLevel = insight?.riskLevel ?? "insufficient";
+      const riskScore = getRiskScore(riskLevel);
+      const avgConcentration =
+        bucket.concentrationCount > 0 ? bucket.concentrationSum / bucket.concentrationCount : null;
+      const examDaysLeft = bucket.examDaysLeft;
+      const taskDaysLeft = bucket.taskDaysLeft;
+      const targetMinutes = getTargetMinutes(riskLevel, examDaysLeft);
+      const studyDeficitScore = clamp((targetMinutes - bucket.recentStudyMinutes) / targetMinutes, 0, 1);
+      const concentrationPenalty = getConcentrationPenalty(avgConcentration);
+      const examUrgencyScore = getExamUrgencyScore(examDaysLeft);
+      const taskUrgencyScore = getTaskUrgencyScore(taskDaysLeft);
+
+      const reasons: string[] = [];
+      if (insight?.riskReason) reasons.push(insight.riskReason);
+      if (examDaysLeft !== null) reasons.push(`시험 D-${examDaysLeft}`);
+      if (taskDaysLeft !== null) reasons.push(`과제 D-${taskDaysLeft}`);
+      if (bucket.recentStudyMinutes === 0) reasons.push("최근 7일 공부 기록 0분");
+      else reasons.push(`최근 7일 ${bucket.recentStudyMinutes}분 공부`);
+      if (avgConcentration !== null) reasons.push(`집중도 평균 ${avgConcentration.toFixed(1)}점`);
+
+      return {
+        subject,
+        riskLevel,
+        riskScore,
+        studyDeficitScore,
+        concentrationPenalty,
+        examUrgencyScore,
+        taskUrgencyScore,
+        priorityScore: 0,
+        reasons,
+        recentStudyMinutes: bucket.recentStudyMinutes,
+        avgConcentration,
+        examDaysLeft,
+        taskDaysLeft,
+        targetMinutes,
+        recommendedAction:
+          insight?.recommendedAction ??
+          (riskLevel === "insufficient"
+            ? "성적 기록을 더 추가하면 맞춤 전략이 생성됩니다"
+            : "유지 학습 중심으로 꾸준히 복습"),
+        latestScore: insight?.latestScore ?? 0,
+        trend: insight?.trend ?? "new",
+        riskReason: insight?.riskReason ?? "",
+        examTitle: bucket.examTitle,
+        taskTitle: bucket.taskTitle,
+        taskPriority: bucket.taskPriority,
+      } satisfies SubjectPlanSignal;
+    })
+    .map((signal) => {
+      let priorityScore = 0;
+
+      if (signal.examDaysLeft !== null && signal.examDaysLeft <= 14) {
+        priorityScore += signal.examUrgencyScore * 0.35;
+      }
+      if (signal.taskDaysLeft !== null && signal.taskDaysLeft <= 7) {
+        priorityScore += signal.taskUrgencyScore * 0.35;
+      }
+
+      if (signal.examDaysLeft !== null && signal.examDaysLeft <= 3) priorityScore += 0.25;
+      if (signal.taskDaysLeft !== null && signal.taskDaysLeft <= 2) priorityScore += 0.15;
+      if (signal.riskLevel === "high" && signal.recentStudyMinutes === 0) priorityScore += 0.2;
+
+      return {
+        ...signal,
+        priorityScore:
+          Math.round(
+            (priorityScore +
+              (signal.riskLevel === "high"
+                ? signal.studyDeficitScore * 0.3 + signal.concentrationPenalty
+                : signal.riskLevel === "medium"
+                  ? signal.studyDeficitScore * 0.25 + signal.concentrationPenalty * 0.1
+                  : signal.riskLevel === "low"
+                    ? signal.studyDeficitScore * 0.35 + signal.concentrationPenalty * 0.2
+                    : signal.studyDeficitScore * 0.2 + signal.concentrationPenalty * 0.1)) *
+              1000,
+          ) / 1000,
+      } satisfies SubjectPlanSignal;
+    })
+    .sort(
+      (a, b) =>
+        b.priorityScore - a.priorityScore ||
+        b.examUrgencyScore - a.examUrgencyScore ||
+        b.taskUrgencyScore - a.taskUrgencyScore ||
+        a.subject.localeCompare(b.subject, "ko"),
+    );
+}
+
+function getPlanModeLabel(mode: PlanMode): string {
+  return planModeConfig[mode].label;
+}
+
 export default async function StrategyPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: rows }, { data: profileData }] = await Promise.all([
+  const [
+    { data: rows },
+    { data: profileData },
+    { data: studyLogRows },
+    { data: studyTaskRows },
+    { data: scheduleRows },
+  ] = await Promise.all([
     supabase
       .from("exams")
       .select(`
@@ -151,6 +581,26 @@ export default async function StrategyPage() {
       .select("school_level, name")
       .eq("id", user.id)
       .single(),
+    supabase
+      .from("study_logs")
+      .select(`study_date, duration_minutes, concentration_level, subjects ( name )`)
+      .eq("user_id", user.id)
+      .order("study_date", { ascending: false })
+      .limit(120),
+    supabase
+      .from("study_tasks")
+      .select(`title, due_date, is_completed, priority, subjects ( name )`)
+      .eq("user_id", user.id)
+      .eq("is_completed", false)
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .limit(80),
+    supabase
+      .from("schedules")
+      .select(`title, event_type, start_date, is_completed, subjects ( name )`)
+      .eq("user_id", user.id)
+      .eq("is_completed", false)
+      .order("start_date", { ascending: true })
+      .limit(80),
   ]);
 
   const schoolLevel = (profileData?.school_level as "middle" | "high" | null) ?? null;
@@ -169,29 +619,31 @@ export default async function StrategyPage() {
       : null;
 
   const topPriority = insights[0] ?? null;
-  const nextFocus = weak[0] ?? caution[0] ?? insights[0] ?? null;
-  const actionCount = weak.length + caution.length + strong.length + lowData.length;
 
-  const weeklyPlan = [
-    {
-      title: "오늘 30분 집중",
-      description: nextFocus
-        ? `${nextFocus.subject}의 ${nextFocus.riskReason || "핵심 개념"}을 기준으로 오답/개념을 먼저 정리하세요.`
-        : "가장 흔들리는 과목부터 30분만 집중 정리하세요.",
-    },
-    {
-      title: "이번 주 3회 복습",
-      description: caution.length > 0
-        ? `${summarizeSubjects(caution.slice(0, 2))} 과목은 짧게 자주 복습해 평균을 끌어올리세요.`
-        : "중간권 과목이 생기면 주 3회 복습 루틴을 바로 붙이세요.",
-    },
-    {
-      title: "강점 유지 점검",
-      description: strong.length > 0
-        ? `${summarizeSubjects(strong.slice(0, 2))} 과목은 유지 학습만으로도 점수를 지킬 수 있습니다.`
-        : "강점 과목은 시험 직전 1회 점검 중심으로 유지하세요.",
-    },
-  ];
+  const studyLogs = (studyLogRows ?? []) as StudyLogRow[];
+  const studyTasks = (studyTaskRows ?? []) as StudyTaskRow[];
+  const schedules = (scheduleRows ?? []) as ScheduleRow[];
+
+  const upcomingExamCount = schedules.filter(isUpcomingExamSchedule).filter((schedule) => {
+    const daysLeft = daysUntil(schedule.start_date);
+    return daysLeft >= 0 && daysLeft <= 14;
+  }).length;
+
+  const urgentTaskCount = studyTasks.filter((task) => {
+    if (task.is_completed || !task.due_date) return false;
+    const daysLeft = daysUntil(task.due_date);
+    return daysLeft >= 0 && daysLeft <= 7;
+  }).length;
+
+  const planMode = getMode(upcomingExamCount, urgentTaskCount);
+  const planSignals = buildSubjectPlanSignals({
+    insights,
+    studyLogs,
+    studyTasks,
+    schedules,
+  });
+
+  const weeklyPlan = planSignals.slice(0, 3).map((signal, index) => buildWeeklyPlanItem(signal, planMode, index));
 
   const decisionRules = [
     {
@@ -212,6 +664,7 @@ export default async function StrategyPage() {
   ];
 
   const schoolLevelLabel = schoolLevel === "high" ? "고등학생 기준: 내신 + 모의고사" : "중학생 기준: 내신 중심";
+  const planModeInfo = planModeConfig[planMode];
 
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-6">
@@ -329,15 +782,18 @@ export default async function StrategyPage() {
 
           <div className="space-y-6 lg:sticky lg:top-24">
             <div className="rounded-2xl border bg-white p-6 space-y-4">
-              <div>
-                <h2 className="text-base font-semibold">이번 주 실행 계획</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  분석 결과를 바로 행동으로 옮길 수 있게 3단계로 나눴습니다.
-                </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold">이번 주 실행 계획</h2>
+                  <p className="text-sm text-muted-foreground mt-1">{planModeInfo.description}</p>
+                </div>
+                <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium shrink-0", planModeInfo.cls)}>
+                  {getPlanModeLabel(planMode)}
+                </span>
               </div>
               <div className="space-y-3">
                 {weeklyPlan.map((step, index) => (
-                  <div key={step.title} className="rounded-xl border bg-muted/20 p-4">
+                  <div key={`${step.subject}-${step.title}`} className="rounded-xl border bg-muted/20 p-4">
                     <div className="flex items-center gap-3 mb-2">
                       <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
                         {index + 1}
@@ -345,8 +801,26 @@ export default async function StrategyPage() {
                       <p className="font-semibold text-sm">{step.title}</p>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">{step.description}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                      <span className={cn("rounded-full px-2 py-0.5 font-medium", subjectBadgeClass(step.subject))}>
+                        {step.subject}
+                      </span>
+                      <span className="rounded-full bg-white border px-2 py-0.5 text-muted-foreground">
+                        {step.durationMinutes}분
+                      </span>
+                      <span className="rounded-full bg-white border px-2 py-0.5 text-muted-foreground capitalize">
+                        {step.priority}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm font-medium text-foreground">{step.action}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{step.reason}</p>
                   </div>
                 ))}
+                {weeklyPlan.length === 0 && (
+                  <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    이번 주에 바로 실행할 과목이 아직 없어요. 성적, 공부 기록, 일정이 쌓이면 계획이 생성됩니다.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -359,21 +833,27 @@ export default async function StrategyPage() {
               </div>
               <div className="space-y-3 text-sm">
                 <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5">
-                  <p className="font-medium text-red-700 mb-1">우선 보강 신호</p>
+                  <p className="font-medium text-red-700 mb-1">성적 위험 신호</p>
                   <p className="text-red-600 text-xs">
-                    평균 60점 미만, 최근 하락, 또는 변동성이 큰 과목은 즉시 개입이 필요합니다.
+                    평균 60점 미만, 최근 하락, 또는 변동성이 큰 과목은 기본적으로 우선순위가 높습니다.
+                  </p>
+                </div>
+                <div className="rounded-xl bg-blue-50 border border-blue-200 px-3 py-2.5">
+                  <p className="font-medium text-blue-700 mb-1">공부 기록 신호</p>
+                  <p className="text-blue-600 text-xs">
+                    최근 7일 공부 시간이 부족하면 같은 과목이라도 더 앞당겨 배치합니다.
                   </p>
                 </div>
                 <div className="rounded-xl bg-yellow-50 border border-yellow-200 px-3 py-2.5">
-                  <p className="font-medium text-yellow-700 mb-1">유지 관리 신호</p>
+                  <p className="font-medium text-yellow-700 mb-1">집중도 신호</p>
                   <p className="text-yellow-600 text-xs">
-                    60~79점대 과목은 조금만 흔들려도 위험해지므로 짧고 자주 복습하는 편이 좋습니다.
+                    집중도가 낮으면 시간을 늘리기보다 학습 방식 변경을 먼저 추천합니다.
                   </p>
                 </div>
-                <div className="rounded-xl bg-green-50 border border-green-200 px-3 py-2.5">
-                  <p className="font-medium text-green-700 mb-1">강점 유지 신호</p>
-                  <p className="text-green-600 text-xs">
-                    80점 이상 과목은 유지 루틴만 정리하면 다른 과목에 집중할 시간을 확보할 수 있습니다.
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5">
+                  <p className="font-medium text-emerald-700 mb-1">시험·과제 신호</p>
+                  <p className="text-emerald-600 text-xs">
+                    14일 이내 시험과 7일 이내 과제를 같이 보며, D-3 / D-2는 강제로 더 높게 반영합니다.
                   </p>
                 </div>
                 {lowData.length > 0 && (
