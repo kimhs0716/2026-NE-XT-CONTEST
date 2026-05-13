@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { encodeSubjectSegment } from "@/lib/subject-route";
 
 export async function upsertSubjectGoal(_: unknown, formData: FormData) {
   const supabase = await createClient();
@@ -52,7 +53,7 @@ export async function upsertSubjectGoal(_: unknown, formData: FormData) {
   revalidatePath("/analytics");
   revalidatePath("/strategy");
   if (subjectName) {
-    revalidatePath(`/grades/${encodeURIComponent(subjectName)}`);
+    revalidatePath(`/grades/${encodeSubjectSegment(subjectName)}`);
   }
 
   return { success: true };

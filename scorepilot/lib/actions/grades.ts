@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { examTypeLabels, formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
+import { encodeSubjectSegment } from "@/lib/subject-route";
 
 function revalidateGradeViews(subjectName?: string) {
   revalidatePath("/grades");
@@ -12,7 +13,7 @@ function revalidateGradeViews(subjectName?: string) {
   revalidatePath("/strategy");
   revalidatePath("/dashboard");
   if (subjectName) {
-    const encoded = encodeURIComponent(subjectName);
+    const encoded = encodeSubjectSegment(subjectName);
     revalidatePath(`/grades/${encoded}`);
     revalidatePath(`/analytics/${encoded}`);
   }

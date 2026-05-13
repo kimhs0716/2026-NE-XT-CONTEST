@@ -8,6 +8,8 @@ import { computePrediction } from "@/lib/analytics/prediction";
 import type { GradePoint, RiskLevel } from "@/lib/analytics/types";
 import { cn } from "@/lib/utils";
 import RecommendationTaskButton from "@/components/strategy/RecommendationTaskButton";
+import GenerateRecommendationsButton from "@/components/strategy/GenerateRecommendationsButton";
+import RecommendationCard, { type RecommendationCardValue } from "@/components/strategy/RecommendationCard";
 
 type ExamRow = {
   subjects: { id: string; name: string } | { id: string; name: string }[] | null;
@@ -39,6 +41,26 @@ type ScheduleRow = {
   start_date: string;
   is_completed: boolean;
   subjects: { name: string } | { name: string }[] | null;
+};
+
+type WeaknessReportRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  severity: number | null;
+  evidence: string | null;
+  weakness_type: string | null;
+  subjects: { name: string } | { name: string }[] | null;
+};
+
+type RecommendationRow = {
+  id: string;
+  title: string;
+  description: string;
+  priority: string | null;
+  recommendation_type: string | null;
+  subjects: { name: string } | { name: string }[] | null;
+  weakness_reports: { title: string } | { title: string }[] | null;
 };
 
 type StrategyInsight = {
@@ -83,6 +105,7 @@ type SubjectPlanSignal = {
   examTitle: string | null;
   taskTitle: string | null;
   taskPriority: string | null;
+  mockWeak: boolean;
 };
 
 type WeeklyPlanItem = {
@@ -120,19 +143,19 @@ const subjectPalette = [
 
 const planModeConfig: Record<PlanMode, { label: string; cls: string; description: string }> = {
   exam: {
-    label: "시험 모드",
+    label: "시험 우선",
     cls: "bg-rose-100 text-rose-700",
-    description: "14일 이내 시험이 있어 시험 임박도를 최우선으로 반영합니다.",
+    description: "가까운 시험과 마감일을 우선 반영했습니다.",
   },
   task: {
-    label: "과제 모드",
+    label: "마감 우선",
     cls: "bg-amber-100 text-amber-700",
-    description: "시험은 없지만 마감 임박 과제가 있어 제출 우선순위를 높입니다.",
+    description: "마감이 가까운 과제를 먼저 확인합니다.",
   },
   routine: {
-    label: "루틴 모드",
+    label: "일상 학습",
     cls: "bg-sky-100 text-sky-700",
-    description: "시험/과제가 없어서 성적 위험도와 최근 공부 패턴을 중심으로 잡습니다.",
+    description: "최근 점수 흐름과 공부 기록을 바탕으로 정리했습니다.",
   },
 };
 
@@ -157,6 +180,11 @@ function semOrderOf(year: number, type: SemesterType): number {
 function extractSubjectName(subjects: { name: string } | { name: string }[] | null): string | null {
   if (!subjects) return null;
   return Array.isArray(subjects) ? subjects[0]?.name ?? null : subjects.name;
+}
+
+function extractWeaknessTitle(weakness: { title: string } | { title: string }[] | null): string | null {
+  if (!weakness) return null;
+  return Array.isArray(weakness) ? weakness[0]?.title ?? null : weakness.title;
 }
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -381,8 +409,9 @@ function buildSubjectPlanSignals(params: {
   studyLogs: StudyLogRow[];
   studyTasks: StudyTaskRow[];
   schedules: ScheduleRow[];
+  mockWeakSubjects?: Set<string>;
 }): SubjectPlanSignal[] {
-  const { insights, studyLogs, studyTasks, schedules } = params;
+  const { insights, studyLogs, studyTasks, schedules, mockWeakSubjects = new Set<string>() } = params;
   const buckets = new Map<
     string,
     {
@@ -475,9 +504,11 @@ function buildSubjectPlanSignals(params: {
       const concentrationPenalty = getConcentrationPenalty(avgConcentration);
       const examUrgencyScore = getExamUrgencyScore(examDaysLeft);
       const taskUrgencyScore = getTaskUrgencyScore(taskDaysLeft);
+      const mockWeak = mockWeakSubjects.has(subject);
 
       const reasons: string[] = [];
       if (insight?.riskReason) reasons.push(insight.riskReason);
+      if (mockWeak) reasons.push("최근 모의고사 보완 필요");
       if (examDaysLeft !== null) reasons.push(`시험 D-${examDaysLeft}`);
       if (taskDaysLeft !== null) reasons.push(`과제 D-${taskDaysLeft}`);
       if (bucket.recentStudyMinutes === 0) reasons.push("최근 7일 공부 기록 0분");
@@ -510,6 +541,7 @@ function buildSubjectPlanSignals(params: {
         examTitle: bucket.examTitle,
         taskTitle: bucket.taskTitle,
         taskPriority: bucket.taskPriority,
+        mockWeak,
       } satisfies SubjectPlanSignal;
     })
     .map((signal) => {
@@ -525,6 +557,7 @@ function buildSubjectPlanSignals(params: {
       if (signal.examDaysLeft !== null && signal.examDaysLeft <= 3) priorityScore += 0.25;
       if (signal.taskDaysLeft !== null && signal.taskDaysLeft <= 2) priorityScore += 0.15;
       if (signal.riskLevel === "high" && signal.recentStudyMinutes === 0) priorityScore += 0.2;
+      if (signal.mockWeak) priorityScore += 0.18;
 
       return {
         ...signal,
@@ -555,6 +588,37 @@ function getPlanModeLabel(mode: PlanMode): string {
   return planModeConfig[mode].label;
 }
 
+function getWeeklyPriorityLabel(priority: WeeklyPlanItem["priority"]): string {
+  if (priority === "highest") return "최우선";
+  if (priority === "maintenance") return "유지";
+  return "보통";
+}
+
+function buildMockWeakSubjectSet(
+  rows: {
+    exam_year: number;
+    exam_month: number;
+    subject: string;
+    raw_score: number | null;
+    grade: number | null;
+    target_score: number | null;
+  }[],
+): Set<string> {
+  if (rows.length === 0) return new Set();
+  const latest = rows.reduce((best, row) => {
+    const bestOrder = best.exam_year * 100 + best.exam_month;
+    const rowOrder = row.exam_year * 100 + row.exam_month;
+    return rowOrder > bestOrder ? row : best;
+  }, rows[0]);
+  const latestOrder = latest.exam_year * 100 + latest.exam_month;
+  return new Set(
+    rows
+      .filter((row) => row.exam_year * 100 + row.exam_month === latestOrder)
+      .filter((row) => (row.grade != null && row.grade >= 4) || (row.target_score != null && row.raw_score != null && row.target_score - row.raw_score >= 10))
+      .map((row) => row.subject),
+  );
+}
+
 export default async function StrategyPage() {
   const supabase = await createClient();
   const {
@@ -568,6 +632,9 @@ export default async function StrategyPage() {
     { data: studyLogRows },
     { data: studyTaskRows },
     { data: scheduleRows },
+    { data: weaknessRows },
+    { data: recommendationRows },
+    { data: mockExamRows },
   ] = await Promise.all([
     supabase
       .from("exams")
@@ -602,6 +669,26 @@ export default async function StrategyPage() {
       .eq("is_completed", false)
       .order("start_date", { ascending: true })
       .limit(80),
+    supabase
+      .from("weakness_reports")
+      .select(`id, title, description, severity, evidence, weakness_type, subjects ( name )`)
+      .eq("user_id", user.id)
+      .order("severity", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("learning_recommendations")
+      .select(`id, title, description, priority, recommendation_type, subjects ( name ), weakness_reports ( title )`)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("mock_exam_records")
+      .select("exam_year, exam_month, subject, raw_score, grade, target_score")
+      .eq("user_id", user.id)
+      .order("exam_year", { ascending: false })
+      .order("exam_month", { ascending: false })
+      .limit(24),
   ]);
 
   const schoolLevel = (profileData?.school_level as "middle" | "high" | null) ?? null;
@@ -624,6 +711,29 @@ export default async function StrategyPage() {
   const studyLogs = (studyLogRows ?? []) as StudyLogRow[];
   const studyTasks = (studyTaskRows ?? []) as StudyTaskRow[];
   const schedules = (scheduleRows ?? []) as ScheduleRow[];
+  const mockWeakSubjects = buildMockWeakSubjectSet((mockExamRows ?? []) as {
+    exam_year: number;
+    exam_month: number;
+    subject: string;
+    raw_score: number | null;
+    grade: number | null;
+    target_score: number | null;
+  }[]);
+  const weaknessReports = ((weaknessRows ?? []) as WeaknessReportRow[]).map((report) => ({
+    ...report,
+    subject: extractSubjectName(report.subjects) ?? "기타",
+  }));
+  const recommendations: RecommendationCardValue[] = ((recommendationRows ?? []) as RecommendationRow[]).map(
+    (recommendation) => ({
+      id: recommendation.id,
+      title: recommendation.title,
+      description: recommendation.description,
+      priority: recommendation.priority,
+      recommendationType: recommendation.recommendation_type,
+      subject: extractSubjectName(recommendation.subjects) ?? "기타",
+      weaknessTitle: extractWeaknessTitle(recommendation.weakness_reports),
+    }),
+  );
   const subjectIdByName = new Map<string, string>();
   for (const row of (rows ?? []) as ExamRow[]) {
     const subjectRow = Array.isArray(row.subjects) ? row.subjects[0] : row.subjects;
@@ -649,27 +759,10 @@ export default async function StrategyPage() {
     studyLogs,
     studyTasks,
     schedules,
+    mockWeakSubjects,
   });
 
   const weeklyPlan = planSignals.slice(0, 3).map((signal, index) => buildWeeklyPlanItem(signal, planMode, index));
-
-  const decisionRules = [
-    {
-      label: "즉시 보강",
-      detail: "평균 60점 미만 또는 최근 하락 폭이 큰 과목",
-      count: weak.length,
-    },
-    {
-      label: "꾸준히 유지",
-      detail: "60~79점 구간의 과목",
-      count: caution.length,
-    },
-    {
-      label: "강점 유지",
-      detail: "80점 이상 과목",
-      count: strong.length,
-    },
-  ];
 
   const schoolLevelLabel = schoolLevel === "high" ? "고등학생 기준: 내신 + 모의고사" : "중학생 기준: 내신 중심";
   const planModeInfo = planModeConfig[planMode];
@@ -685,10 +778,10 @@ export default async function StrategyPage() {
 
       {insights.length === 0 ? (
         <div className="rounded-2xl border bg-white p-12 text-center text-muted-foreground text-sm">
-          성적을 등록하면 과목별 우선순위, 실행 계획, 판단 근거가 자동으로 생성됩니다.
+          성적을 등록하면 과목별 실행 계획이 자동으로 만들어집니다.
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[1.45fr_0.95fr] items-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_450px] items-start">
           <div className="space-y-6">
             <div className="grid gap-4 md:grid-cols-4">
               <div className="rounded-2xl border bg-white p-5">
@@ -777,31 +870,74 @@ export default async function StrategyPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              {decisionRules.map((rule) => (
-                <div key={rule.label} className="rounded-2xl border bg-white p-5">
-                  <p className="text-xs text-muted-foreground">{rule.label}</p>
-                  <p className="text-2xl font-bold mt-1">{rule.count}</p>
-                  <p className="text-sm text-muted-foreground mt-2">{rule.detail}</p>
+            <div className="rounded-2xl border bg-white p-6 space-y-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-semibold">추가로 해볼 만한 학습</h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    필요하면 이번 주 할 일에 추가해 보세요.
+                  </p>
                 </div>
-              ))}
+                <GenerateRecommendationsButton />
+              </div>
+
+              {weaknessReports.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {weaknessReports.slice(0, 4).map((report) => (
+                    <span
+                      key={report.id}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-[11px] font-medium",
+                        subjectBadgeClass(report.subject),
+                      )}
+                    >
+                      {report.subject}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid gap-3 xl:grid-cols-2">
+                {recommendations.length > 0 ? (
+                  recommendations.slice(0, 4).map((recommendation) => (
+                    <RecommendationCard key={recommendation.id} recommendation={recommendation} />
+                  ))
+                ) : (
+                  <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground xl:col-span-2">
+                    추천 만들기를 누르면 현재 기록을 바탕으로 학습 제안을 정리합니다.
+                  </div>
+                )}
+              </div>
             </div>
+
           </div>
 
-          <div className="space-y-6 lg:sticky lg:top-24">
-            <div className="rounded-2xl border bg-white p-6 space-y-4">
+          <div className="space-y-4 lg:sticky lg:top-24">
+            <div className="rounded-2xl border border-primary/20 bg-white p-6 space-y-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold">이번 주 실행 계획</h2>
-                  <p className="text-sm text-muted-foreground mt-1">{planModeInfo.description}</p>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-semibold">이번 주 실행 계획</h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    이번 주에 우선 실행할 학습 항목입니다.
+                  </p>
                 </div>
                 <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium shrink-0", planModeInfo.cls)}>
                   {getPlanModeLabel(planMode)}
                 </span>
               </div>
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {planModeInfo.description}
+              </div>
               <div className="space-y-3">
                 {weeklyPlan.map((step, index) => (
-                  <div key={`${step.subject}-${step.title}`} className="rounded-xl border bg-muted/20 p-4">
+                  <div
+                    key={`${step.subject}-${step.title}`}
+                    className="rounded-xl border bg-muted/20 p-4"
+                  >
                     <div className="flex items-center gap-3 mb-2">
                       <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
                         {index + 1}
@@ -816,8 +952,8 @@ export default async function StrategyPage() {
                       <span className="rounded-full bg-white border px-2 py-0.5 text-muted-foreground">
                         {step.durationMinutes}분
                       </span>
-                      <span className="rounded-full bg-white border px-2 py-0.5 text-muted-foreground capitalize">
-                        {step.priority}
+                      <span className="rounded-full bg-white border px-2 py-0.5 text-muted-foreground">
+                        {getWeeklyPriorityLabel(step.priority)}
                       </span>
                     </div>
                     <p className="mt-3 text-sm font-medium text-foreground">{step.action}</p>
@@ -842,41 +978,38 @@ export default async function StrategyPage() {
 
             <div className="rounded-2xl border bg-white p-6 space-y-4">
               <div>
-                <h2 className="text-base font-semibold">판단 근거</h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  왜 이런 전략이 나왔는지 한눈에 확인하세요.
-                </p>
+                <h2 className="text-base font-semibold">계획에 반영한 기준</h2>
               </div>
               <div className="space-y-3 text-sm">
                 <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5">
-                  <p className="font-medium text-red-700 mb-1">성적 위험 신호</p>
+                  <p className="font-medium text-red-700 mb-1">최근 점수 흐름</p>
                   <p className="text-red-600 text-xs">
-                    평균 60점 미만, 최근 하락, 또는 변동성이 큰 과목은 기본적으로 우선순위가 높습니다.
+                    최근 점수 흐름과 평균 점수를 함께 봅니다.
                   </p>
                 </div>
                 <div className="rounded-xl bg-blue-50 border border-blue-200 px-3 py-2.5">
-                  <p className="font-medium text-blue-700 mb-1">공부 기록 신호</p>
+                  <p className="font-medium text-blue-700 mb-1">공부 기록</p>
                   <p className="text-blue-600 text-xs">
-                    최근 7일 공부 시간이 부족하면 같은 과목이라도 더 앞당겨 배치합니다.
+                    공부 기록이 적은 과목은 먼저 확인하도록 제안합니다.
                   </p>
                 </div>
                 <div className="rounded-xl bg-yellow-50 border border-yellow-200 px-3 py-2.5">
-                  <p className="font-medium text-yellow-700 mb-1">집중도 신호</p>
+                  <p className="font-medium text-yellow-700 mb-1">집중도</p>
                   <p className="text-yellow-600 text-xs">
-                    집중도가 낮으면 시간을 늘리기보다 학습 방식 변경을 먼저 추천합니다.
+                    집중도가 낮게 기록된 과목은 공부 방식 점검을 함께 제안합니다.
                   </p>
                 </div>
                 <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5">
-                  <p className="font-medium text-emerald-700 mb-1">시험·과제 신호</p>
+                  <p className="font-medium text-emerald-700 mb-1">시험·과제 일정</p>
                   <p className="text-emerald-600 text-xs">
-                    14일 이내 시험과 7일 이내 과제를 같이 보며, 3일 이내의 일정은 더 높은 우선순위를 부여합니다.
+                    가까운 시험이나 마감일이 있으면 우선순위를 높입니다.
                   </p>
                 </div>
                 {lowData.length > 0 && (
                   <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2.5">
-                    <p className="font-medium text-gray-700 mb-1">데이터 부족</p>
+                    <p className="font-medium text-gray-700 mb-1">기록 부족</p>
                     <p className="text-gray-600 text-xs">
-                      {summarizeSubjects(lowData.slice(0, 3))} 과목은 기록을 더 쌓은 뒤 더 정교한 전략이 가능합니다.
+                      {summarizeSubjects(lowData.slice(0, 3))} 과목은 기록이 더 쌓이면 더 정확한 제안이 가능합니다.
                     </p>
                   </div>
                 )}

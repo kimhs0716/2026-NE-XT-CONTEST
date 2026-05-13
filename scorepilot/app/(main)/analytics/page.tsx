@@ -59,6 +59,16 @@ type AnalysisReportRow = {
   created_at: string;
 };
 
+type MockExamRow = {
+  exam_year: number;
+  exam_month: number;
+  subject: string;
+  raw_score: number | null;
+  percentile: number | null;
+  grade: number | null;
+  target_score: number | null;
+};
+
 function semesterOrder(year: number, type: SemesterType): number {
   return year * 10 + (type === "semester_2" ? 2 : 1);
 }
@@ -145,6 +155,42 @@ function buildChartData(
   return { data, subjects };
 }
 
+function buildMockComparison(
+  mockRows: MockExamRow[],
+  subjectAnalysisList: SubjectAnalysis[],
+) {
+  if (mockRows.length === 0) return null;
+  const latest = mockRows.reduce((best, row) => {
+    const bestOrder = best.exam_year * 100 + best.exam_month;
+    const rowOrder = row.exam_year * 100 + row.exam_month;
+    return rowOrder > bestOrder ? row : best;
+  }, mockRows[0]);
+  const latestOrder = latest.exam_year * 100 + latest.exam_month;
+  const latestRows = mockRows.filter((row) => row.exam_year * 100 + row.exam_month === latestOrder);
+  const grades = latestRows.map((row) => row.grade).filter((grade): grade is number => grade != null);
+  const averageGrade =
+    grades.length > 0
+      ? Math.round((grades.reduce((sum, grade) => sum + grade, 0) / grades.length) * 10) / 10
+      : null;
+  const mockWeakSubjects = latestRows
+    .filter((row) => (row.grade != null && row.grade >= 4) || (row.target_score != null && row.raw_score != null && row.target_score - row.raw_score >= 10))
+    .map((row) => row.subject)
+    .slice(0, 4);
+  const schoolWeakSubjects = subjectAnalysisList
+    .filter((item) => item.risk.riskLevel === "high" || item.risk.riskLevel === "medium")
+    .map((item) => item.metrics.subject)
+    .slice(0, 4);
+  const overlap = mockWeakSubjects.filter((subject) => schoolWeakSubjects.includes(subject));
+
+  return {
+    label: `${latest.exam_year}년 ${latest.exam_month}월`,
+    averageGrade,
+    mockWeakSubjects,
+    schoolWeakSubjects,
+    overlap,
+  };
+}
+
 export default async function AnalyticsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -157,6 +203,7 @@ export default async function AnalyticsPage() {
     { data: studyTaskRows },
     { data: subjectRows },
     { data: feedbackRows },
+    { data: mockRows },
   ] = await Promise.all([
     supabase
       .from("exams")
@@ -197,6 +244,13 @@ export default async function AnalyticsPage() {
       .eq("title", "AI 학습 피드백")
       .order("created_at", { ascending: false })
       .limit(1),
+    supabase
+      .from("mock_exam_records")
+      .select("exam_year, exam_month, subject, raw_score, percentile, grade, target_score")
+      .eq("user_id", user.id)
+      .order("exam_year", { ascending: false })
+      .order("exam_month", { ascending: false })
+      .limit(24),
   ]);
 
   // ── 유효 성적 데이터 ──────────────────────────────────────────
@@ -284,6 +338,7 @@ export default async function AnalyticsPage() {
   const pendingStudyTasks = allStudyTasks.filter((task) => !task.is_completed);
   const completedStudyTasks = allStudyTasks.filter((task) => task.is_completed).slice(0, 8);
   const savedFeedback = ((feedbackRows ?? []) as AnalysisReportRow[])[0];
+  const mockComparison = buildMockComparison((mockRows ?? []) as MockExamRow[], subjectAnalysisList);
 
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-6">
@@ -292,7 +347,7 @@ export default async function AnalyticsPage() {
         <div>
           <h1 className="text-2xl font-bold">분석</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            과목별 성적 추이와 AI 맞춤 피드백을 확인하세요
+            과목별 성적 추이와 학습 피드백을 확인하세요
           </p>
         </div>
         <AnalysisModeSelect subjects={subjectNames} />
@@ -507,9 +562,52 @@ export default async function AnalyticsPage() {
             )}
           </div>
 
-          {/* AI 성적 예측 */}
+          {/* 성적 예측 */}
+          {mockComparison && (
+            <div className="rounded-2xl border bg-white p-6 space-y-4">
+              <div>
+                <h2 className="text-base font-semibold">모의고사와 내신 비교</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  최근 모의고사와 내신에서 함께 확인할 과목을 정리했습니다.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-xl border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">최근 모의고사</p>
+                  <p className="mt-1 font-semibold">{mockComparison.label}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    평균 등급 {mockComparison.averageGrade != null ? `${mockComparison.averageGrade}등급` : "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">함께 우선 확인</p>
+                  <p className="mt-1 font-semibold">
+                    {mockComparison.overlap.length > 0 ? mockComparison.overlap.join(", ") : "겹치는 과목 없음"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    모의고사와 내신 모두에서 보완이 필요한 과목
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>
+                  모의고사 보완 과목:{" "}
+                  <span className="font-medium text-foreground">
+                    {mockComparison.mockWeakSubjects.length > 0 ? mockComparison.mockWeakSubjects.join(", ") : "-"}
+                  </span>
+                </p>
+                <p>
+                  내신 관리 과목:{" "}
+                  <span className="font-medium text-foreground">
+                    {mockComparison.schoolWeakSubjects.length > 0 ? mockComparison.schoolWeakSubjects.join(", ") : "-"}
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="rounded-2xl border bg-white p-6 space-y-4">
-            <h2 className="text-base font-semibold">AI 성적 예측</h2>
+            <h2 className="text-base font-semibold">성적 예측</h2>
             <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
           </div>
 

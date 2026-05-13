@@ -15,40 +15,96 @@ export type StudyFeedbackContext = {
   recentContents: string[];
 };
 
-function formatMinutes(minutes: number): string {
-  if (minutes < 60) return `${minutes}분`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest > 0 ? `${hours}시간 ${rest}분` : `${hours}시간`;
+export type SchoolLevel = "middle" | "high" | null;
+
+export type MockExamSummary = {
+  latestExam: string | null;
+  averageGrade: number | null;
+  weakSubjects: string[];
+  targetGaps: string[];
+};
+
+function valueOrDash(value: number | null | undefined): string {
+  return value == null ? "-" : String(value);
+}
+
+function signed(value: number | null): string {
+  if (value == null) return "-";
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function riskCode(riskLevel: SubjectInsight["riskLevel"]): string {
+  if (riskLevel === "high") return "H";
+  if (riskLevel === "medium") return "M";
+  if (riskLevel === "low") return "L";
+  return "N";
+}
+
+function summarizeContents(contents: string[]): string {
+  return contents
+    .slice(0, 2)
+    .map((content) => content.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" / ")
+    .slice(0, 80);
 }
 
 export function buildFeedbackPrompt(
   insights: SubjectInsight[],
   studyContexts: StudyFeedbackContext[] = [],
+  schoolLevel: SchoolLevel = null,
+  mockExamSummary: MockExamSummary | null = null,
 ): string {
   const studyBySubject = new Map(studyContexts.map((s) => [s.subject, s]));
   const sorted = [...insights]
     .sort((a, b) => a.priority - b.priority)
     .slice(0, 4);
 
-  const subjectSummaries = sorted
-    .map((s) => {
-      const study = studyBySubject.get(s.subject);
-      const deltaStr =
-        s.recentDelta !== null
-          ? `변화 ${s.recentDelta > 0 ? "+" : ""}${s.recentDelta}`
-          : "변화 -";
-      const target = study?.targetScore != null
-        ? `목표 ${study.targetScore}, 차이 ${study.targetGap != null && study.targetGap > 0 ? "+" : ""}${study.targetGap}`
-        : "목표 -";
-      const concentration = study?.averageConcentration != null ? study.averageConcentration : "-";
-      const schedule = study?.nearestScheduleDays != null ? `D-${study.nearestScheduleDays}` : "-";
-      return `${s.subject}: 평균 ${s.average}, 최근 ${s.latestScore}, ${deltaStr}, 예측 ${s.predictedScore}, 위험 ${s.riskLevel}, ${target}, 공부 ${formatMinutes(study?.totalMinutes ?? 0)}, 집중 ${concentration}, 할일 ${study?.pendingTaskCount ?? 0}, 일정 ${schedule}, 행동 ${s.recommendedAction}`;
-    })
-    .join("\n");
+  const lines = sorted.map((s) => {
+    const study = studyBySubject.get(s.subject);
+    const contents = summarizeContents(study?.recentContents ?? []);
+    return [
+      `sub=${s.subject}`,
+      `avg=${s.average}`,
+      `last=${s.latestScore}`,
+      `delta=${signed(s.recentDelta)}`,
+      `pred=${valueOrDash(s.predictedScore)}`,
+      `risk=${riskCode(s.riskLevel)}`,
+      `goal=${valueOrDash(study?.targetScore)}`,
+      `gap=${signed(study?.targetGap ?? null)}`,
+      `min=${study?.totalMinutes ?? 0}`,
+      `conc=${valueOrDash(study?.averageConcentration)}`,
+      `hard=${study?.hardLogCount ?? 0}`,
+      `tasks=${study?.pendingTaskCount ?? 0}`,
+      `hiTasks=${study?.highPriorityTaskCount ?? 0}`,
+      `examD=${valueOrDash(study?.nearestScheduleDays)}`,
+      `action=${s.recommendedAction}`,
+      contents ? `recent=${contents}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  });
 
-  return `중고등학생 학습 코치로 답하세요.
-규칙: 아래 수치만 사용, 새 원인 추측 금지, 3문장 이내, 존댓말, 마크다운 금지, 바로 할 행동 1개 포함.
-데이터(우선순위 상위 4개):
-${subjectSummaries}`;
+  const school = schoolLevel === "high" ? "high" : schoolLevel === "middle" ? "middle" : "unknown";
+  const mockLine =
+    schoolLevel === "high" && mockExamSummary
+      ? [
+          mockExamSummary.latestExam ? `latest=${mockExamSummary.latestExam}` : null,
+          mockExamSummary.averageGrade != null ? `avgGrade=${mockExamSummary.averageGrade}` : null,
+          mockExamSummary.weakSubjects.length > 0 ? `weak=${mockExamSummary.weakSubjects.join(",")}` : null,
+          mockExamSummary.targetGaps.length > 0 ? `gap=${mockExamSummary.targetGaps.join(",")}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : "";
+
+  return `아래 DATA만 근거로 학습 피드백을 작성하세요.
+숫자는 꼭 필요한 1~2개만 인용하세요.
+level은 조언 범위 선택에만 참고하고, 답변에 직접 쓰지 마세요.
+risk H=보완 필요, M=관리 필요, L=흐름 양호, N=자료 부족입니다. 이 코드명은 답변에 쓰지 마세요.
+gap은 목표까지 남은 점수이며 음수면 목표 초과입니다.
+level=${school}
+MOCK:${mockLine || "-"}
+DATA:
+${lines.join("\n")}`;
 }

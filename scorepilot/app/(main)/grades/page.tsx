@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
 import GradeForm from "@/components/grades/GradeForm";
+import { encodeSubjectSegment } from "@/lib/subject-route";
 
 type ExamRow = {
   id: string;
@@ -145,7 +146,7 @@ export default async function GradesPage() {
               return (
                 <Link
                   key={s.name}
-                  href={`/grades/${encodeURIComponent(s.name)}`}
+                  href={`/grades/${encodeSubjectSegment(s.name)}`}
                   className="rounded-2xl border bg-white p-5 flex flex-col gap-3 hover:shadow-md transition-shadow no-underline text-foreground"
                 >
                   <div>

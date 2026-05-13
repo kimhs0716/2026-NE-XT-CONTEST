@@ -15,6 +15,7 @@ import { computeStrategy } from "@/lib/analytics/strategy";
 import { computePrediction } from "@/lib/analytics/prediction";
 import type { GradePoint } from "@/lib/analytics/types";
 import { cn } from "@/lib/utils";
+import { decodeSubjectSegment } from "@/lib/subject-route";
 
 const RISK_CONFIG = {
   high:         { label: "위험",      cls: "bg-red-100 text-red-700" },
@@ -118,7 +119,7 @@ export default async function SubjectAnalyticsPage({
   params: Promise<{ subject: string }>;
 }) {
   const { subject: encodedSubject } = await params;
-  const subject = decodeURIComponent(encodedSubject);
+  const subject = decodeSubjectSegment(encodedSubject);
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -326,13 +327,13 @@ export default async function SubjectAnalyticsPage({
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">위험도</span>
+                  <span className="text-muted-foreground">관리 상태</span>
                   <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", riskCfg.cls)}>
                     {riskCfg.label}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">우선순위</span>
+                  <span className="text-muted-foreground">학습 우선순위</span>
                   <span className="font-medium">{strategy.priority}순위</span>
                 </div>
               </div>
@@ -515,9 +516,9 @@ export default async function SubjectAnalyticsPage({
             )}
           </div>
 
-          {/* AI 예측 */}
+          {/* 성적 예측 */}
           <div className="rounded-2xl border bg-white p-6 space-y-4">
-            <h2 className="text-base font-semibold">AI 성적 예측</h2>
+            <h2 className="text-base font-semibold">성적 예측</h2>
             {prediction ? (
               <>
                 <div className="flex items-end gap-3">
@@ -562,7 +563,7 @@ export default async function SubjectAnalyticsPage({
               </>
             ) : (
               <p className="text-sm text-muted-foreground py-4 text-center">
-                성적 기록이 더 쌓이면 예측이 가능합니다.
+                성적 기록이 쌓이면 다음 점수를 예측할 수 있습니다.
               </p>
             )}
           </div>

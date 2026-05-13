@@ -1,6 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 import type { SubjectInsight } from "@/lib/analytics/types";
 import type { StudyFeedbackContext } from "@/lib/ai/prompt";
+import {
+  STUDENT_COACH_GENERATION_CONFIG,
+  STUDENT_COACH_SYSTEM_PROMPT,
+} from "@/lib/ai/system-prompt";
 
 export type FeedbackResult = {
   source: "llm" | "fallback";
@@ -26,37 +30,36 @@ function generateFallbackFeedback(
   if (highRisk.length > 0) {
     const s = highRisk[0];
     const study = studyContexts.find((context) => context.subject === s.subject);
-    const concentration = study?.averageConcentration != null ? `${study.averageConcentration}` : "기록 없음";
     const studyHint =
       study && study.totalMinutes > 0
-        ? ` 최근 공부 기록은 총 ${study.totalMinutes}분, 평균 집중도 ${concentration}/5입니다.`
-        : " 최근 공부 기록이 부족하니 학습 시간을 먼저 기록해보세요.";
+        ? ` 최근 공부 기록은 ${study.totalMinutes}분입니다.`
+        : " 최근 공부 기록이 적어 먼저 학습 시간을 남겨두는 것이 좋습니다.";
     parts.push(
-      `${s.subject} 과목은 최근 성적 흐름상 주의가 필요합니다.${studyHint} 다음 시험 예상 점수는 ${s.predictedScore}%이며, ${s.recommendedAction}을 우선적으로 진행하는 것이 좋습니다.`,
+      `${s.subject}은 이번 주에 먼저 확인할 필요가 있습니다.${studyHint} 오늘은 ${s.recommendedAction}부터 진행해 보세요.`,
     );
     if (highRisk.length > 1) {
       const s2 = highRisk[1];
-      parts.push(`${s2.subject} 과목도 함께 점검하는 것을 권장합니다.`);
+      parts.push(`${s2.subject}도 시간이 남으면 짧게 점검해 보세요.`);
     }
   } else if (declining.length > 0) {
     const s = declining[0];
     const study = studyContexts.find((context) => context.subject === s.subject);
     const taskHint =
       study && study.highPriorityTaskCount > 0
-        ? ` 높은 우선순위 할 일 ${study.highPriorityTaskCount}개를 먼저 끝내세요.`
-        : " 실수 유형 점검과 복습을 병행하는 것이 좋습니다.";
+        ? ` 먼저 남아 있는 중요 할 일 ${study.highPriorityTaskCount}개를 정리해 보세요.`
+        : " 실수 유형을 확인한 뒤 짧게 복습해 보세요.";
     parts.push(
-      `${s.subject} 과목은 최근 점수가 다소 하락했습니다. 다음 시험 예상 점수는 ${s.predictedScore}%입니다.${taskHint}`,
+      `${s.subject}은 최근 흐름을 한 번 점검하면 좋겠습니다.${taskHint}`,
     );
   } else if (improving.length > 0) {
     const s = improving[0];
     parts.push(
-      `${s.subject} 과목은 최근 성적이 상승세입니다. 다음 시험 예상 점수는 ${s.predictedScore}%이며, 현재 학습 방식을 유지하면서 부족한 부분을 보완하는 것이 좋습니다.`,
+      `${s.subject}은 최근 흐름이 좋아지고 있습니다. 오늘은 지금 방식은 유지하되, 틀린 문제를 5개만 다시 확인해 보세요.`,
     );
   } else {
     const s = sorted[0];
     parts.push(
-      `${s.subject} 과목은 현재 성적이 비교적 안정적입니다. 다음 시험 예상 점수는 ${s.predictedScore}%이며, 기존 학습 흐름을 유지하는 것이 좋습니다.`,
+      `${s.subject}은 현재 흐름이 비교적 안정적입니다. 오늘은 오답이나 헷갈린 개념을 20분만 확인해 보세요.`,
     );
   }
 
@@ -84,6 +87,10 @@ export async function generateFeedbackWithFallback(
     const response = await ai.models.generateContent({
       model: modelName,
       contents: prompt,
+      config: {
+        ...STUDENT_COACH_GENERATION_CONFIG,
+        systemInstruction: STUDENT_COACH_SYSTEM_PROMPT,
+      },
     });
     return {
       source: "llm",

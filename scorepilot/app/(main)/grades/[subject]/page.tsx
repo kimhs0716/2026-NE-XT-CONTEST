@@ -12,6 +12,7 @@ import GradeForm from "@/components/grades/GradeForm";
 import GradeEditForm from "@/components/grades/GradeEditForm";
 import GradeDeleteButton from "@/components/grades/GradeDeleteButton";
 import SubjectGoalForm from "@/components/grades/SubjectGoalForm";
+import { decodeSubjectSegment } from "@/lib/subject-route";
 
 type ExamRow = {
   id: string;
@@ -44,7 +45,7 @@ export default async function SubjectPage({
   params: Promise<{ subject: string }>;
 }) {
   const { subject: encodedSubject } = await params;
-  const subject = decodeURIComponent(encodedSubject);
+  const subject = decodeSubjectSegment(encodedSubject);
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

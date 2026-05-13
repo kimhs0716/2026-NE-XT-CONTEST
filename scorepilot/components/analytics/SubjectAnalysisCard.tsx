@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { SubjectAnalysis } from "@/lib/analytics/types";
+import { encodeSubjectSegment } from "@/lib/subject-route";
 
 const RISK_CONFIG = {
   high: { label: "위험", cls: "bg-red-100 text-red-700" },
@@ -41,7 +42,7 @@ export default function SubjectAnalysisCard({
 
   return (
     <Link
-      href={`/analytics/${encodeURIComponent(metrics.subject)}`}
+      href={`/analytics/${encodeSubjectSegment(metrics.subject)}`}
       className="block rounded-xl border bg-white p-4 space-y-3 hover:shadow-sm transition-shadow"
     >
       {/* 헤더 */}

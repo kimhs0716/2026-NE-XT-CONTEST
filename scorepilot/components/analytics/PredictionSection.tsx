@@ -56,11 +56,7 @@ export default function PredictionSection({
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            과목별 가중 선형 추세 모델 기반 예측
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">과목별 가중 선형 추세 모델 기반 예측</p>
         <button
           onClick={handleGenerate}
           disabled={isPending}
@@ -73,8 +69,7 @@ export default function PredictionSection({
       {predictions.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground text-sm">
           <p className="text-2xl mb-2">🔮</p>
-          <p>예측 생성 버튼을 눌러 AI 성적 예측을 시작하세요.</p>
-          <p className="text-xs mt-1">성적 기록이 1개 이상인 과목부터 예측이 가능합니다.</p>
+          <p>성적 기록이 쌓이면 다음 점수를 예측할 수 있습니다.</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4">

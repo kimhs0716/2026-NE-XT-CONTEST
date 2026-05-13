@@ -8,7 +8,7 @@ import { computeRisk } from "@/lib/analytics/risk";
 import { computeStrategy } from "@/lib/analytics/strategy";
 import { computePrediction } from "@/lib/analytics/prediction";
 import { buildInsight } from "@/lib/analytics/insight-data";
-import { buildFeedbackPrompt, type StudyFeedbackContext } from "@/lib/ai/prompt";
+import { buildFeedbackPrompt, type MockExamSummary, type StudyFeedbackContext } from "@/lib/ai/prompt";
 import { generateFeedbackWithFallback } from "@/lib/ai/generate-feedback";
 import type { GradePoint, SubjectInsight } from "@/lib/analytics/types";
 
@@ -29,6 +29,51 @@ function daysUntil(dateStr: string): number {
   return Math.round((target - today) / MS_PER_DAY);
 }
 
+function buildMockExamSummary(
+  rows: {
+    exam_year: number;
+    exam_month: number;
+    subject: string;
+    raw_score: number | null;
+    grade: number | null;
+    target_score: number | null;
+  }[],
+): MockExamSummary | null {
+  if (rows.length === 0) return null;
+
+  const latest = rows.reduce((best, row) => {
+    const bestOrder = best.exam_year * 100 + best.exam_month;
+    const rowOrder = row.exam_year * 100 + row.exam_month;
+    return rowOrder > bestOrder ? row : best;
+  }, rows[0]);
+  const latestOrder = latest.exam_year * 100 + latest.exam_month;
+  const latestRows = rows.filter((row) => row.exam_year * 100 + row.exam_month === latestOrder);
+  const grades = latestRows.map((row) => row.grade).filter((grade): grade is number => grade != null);
+  const averageGrade =
+    grades.length > 0
+      ? Math.round((grades.reduce((sum, grade) => sum + grade, 0) / grades.length) * 10) / 10
+      : null;
+
+  const weakSubjects = latestRows
+    .filter((row) => (row.grade != null && row.grade >= 4) || (row.target_score != null && row.raw_score != null && row.target_score - row.raw_score >= 10))
+    .sort((a, b) => (b.grade ?? 0) - (a.grade ?? 0))
+    .map((row) => row.subject)
+    .slice(0, 3);
+
+  const targetGaps = latestRows
+    .filter((row) => row.target_score != null && row.raw_score != null && row.target_score > row.raw_score)
+    .sort((a, b) => (b.target_score! - b.raw_score!) - (a.target_score! - a.raw_score!))
+    .slice(0, 3)
+    .map((row) => `${row.subject}${row.target_score! - row.raw_score!}`);
+
+  return {
+    latestExam: `${latest.exam_year}-${String(latest.exam_month).padStart(2, "0")}`,
+    averageGrade,
+    weakSubjects,
+    targetGaps,
+  };
+}
+
 export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
   const supabase = await createClient();
   const {
@@ -44,6 +89,8 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     { data: studyTasks },
     { data: goals },
     { data: schedules },
+    { data: profileData },
+    { data: mockExamRows },
   ] = await Promise.all([
     supabase
       .from("exams")
@@ -74,6 +121,18 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       .eq("is_completed", false)
       .gte("start_date", today)
       .limit(40),
+    supabase
+      .from("profiles")
+      .select("school_level")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("mock_exam_records")
+      .select("exam_year, exam_month, subject, raw_score, grade, target_score")
+      .eq("user_id", user.id)
+      .order("exam_year", { ascending: false })
+      .order("exam_month", { ascending: false })
+      .limit(24),
   ]);
 
   if (!rows?.length) return { error: "성적 데이터가 없습니다." };
@@ -209,28 +268,33 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     ensureStudyEntry(subjectId, name);
   }
 
-  const studyContexts: StudyFeedbackContext[] = [...studyMap.values()].map((entry) => ({
-    subject: entry.subject,
-    targetScore: entry.targetScore,
-    targetGap:
-      entry.targetScore == null
-        ? null
-        : Math.round(((insights.find((insight) => insight.subject === entry.subject)?.latestScore ?? 0) - entry.targetScore) * 10) / 10,
-    logCount: entry.logCount,
-    totalMinutes: entry.totalMinutes,
-    averageConcentration:
-      entry.concentrationCount > 0
-        ? Math.round((entry.concentrationSum / entry.concentrationCount) * 10) / 10
-        : null,
-    hardLogCount: entry.hardLogCount,
-    pendingTaskCount: entry.pendingTaskCount,
-    highPriorityTaskCount: entry.highPriorityTaskCount,
-    upcomingScheduleCount: entry.upcomingScheduleCount,
-    nearestScheduleDays: entry.nearestScheduleDays,
-    recentContents: entry.recentContents,
-  }));
+  const studyContexts: StudyFeedbackContext[] = [...studyMap.values()].map((entry) => {
+    const latestScore = insights.find((insight) => insight.subject === entry.subject)?.latestScore ?? null;
+    return {
+      subject: entry.subject,
+      targetScore: entry.targetScore,
+      targetGap:
+        entry.targetScore == null || latestScore == null
+          ? null
+          : Math.round((entry.targetScore - latestScore) * 10) / 10,
+      logCount: entry.logCount,
+      totalMinutes: entry.totalMinutes,
+      averageConcentration:
+        entry.concentrationCount > 0
+          ? Math.round((entry.concentrationSum / entry.concentrationCount) * 10) / 10
+          : null,
+      hardLogCount: entry.hardLogCount,
+      pendingTaskCount: entry.pendingTaskCount,
+      highPriorityTaskCount: entry.highPriorityTaskCount,
+      upcomingScheduleCount: entry.upcomingScheduleCount,
+      nearestScheduleDays: entry.nearestScheduleDays,
+      recentContents: entry.recentContents,
+    };
+  });
 
-  const prompt = buildFeedbackPrompt(insights, studyContexts);
+  const schoolLevel = profileData?.school_level === "high" ? "high" : profileData?.school_level === "middle" ? "middle" : null;
+  const mockExamSummary = schoolLevel === "high" ? buildMockExamSummary(mockExamRows ?? []) : null;
+  const prompt = buildFeedbackPrompt(insights, studyContexts, schoolLevel, mockExamSummary);
   const result = await generateFeedbackWithFallback(prompt, insights, studyContexts);
 
   await supabase.from("analysis_reports").insert({

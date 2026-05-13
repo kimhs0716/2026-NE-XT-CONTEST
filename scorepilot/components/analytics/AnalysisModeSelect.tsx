@@ -7,6 +7,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { encodeSubjectSegment } from "@/lib/subject-route";
 
 type Props = {
   subjects: string[];
@@ -16,7 +17,7 @@ type Props = {
 export default function AnalysisModeSelect({ subjects, currentSubject }: Props) {
   const router = useRouter();
   const currentValue = currentSubject
-    ? `/analytics/${encodeURIComponent(currentSubject)}`
+    ? `/analytics/${encodeSubjectSegment(currentSubject)}`
     : "/analytics";
 
   const currentLabel = currentSubject ? `${currentSubject} 분석` : "전체 분석";
@@ -39,7 +40,7 @@ export default function AnalysisModeSelect({ subjects, currentSubject }: Props) 
           전체 분석
         </SelectItem>
         {subjects.map((subject) => {
-          const value = `/analytics/${encodeURIComponent(subject)}`;
+          const value = `/analytics/${encodeSubjectSegment(subject)}`;
           return (
             <SelectItem key={subject} value={value} label={`${subject} 분석`}>
               {subject} 분석
