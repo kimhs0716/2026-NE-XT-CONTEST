@@ -7,22 +7,25 @@ type ExamRow = {
   exam_type: string;
   subjects: { name: string } | { name: string }[] | null;
   semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
-  grade_records: { percentage: number }[];
+  grade_records: { percentage: number; score: number; max_score: number }[];
+  created_at: string;
 };
-
-const EXAM_TYPES = ["midterm", "final", "mock_exam"];
-const ASSIGNMENT_TYPES = ["assignment"];
 
 function semesterOrder(year: number, type: SemesterType): number {
   return year * 10 + (type === "semester_2" ? 2 : 1);
 }
 
-function buildChartData(rows: { semester: string; semOrder: number; subject: string; percentage: number }[]) {
+function buildChartData(
+  rows: { semester: string; semOrder: number; subject: string; percentage: number }[]
+) {
   const subjects = [...new Set(rows.map((r) => r.subject))];
   const bySem = new Map<string, { semOrder: number; scores: Record<string, number | null> }>();
   for (const r of rows) {
     if (!bySem.has(r.semester)) {
-      bySem.set(r.semester, { semOrder: r.semOrder, scores: Object.fromEntries(subjects.map((s) => [s, null])) });
+      bySem.set(r.semester, {
+        semOrder: r.semOrder,
+        scores: Object.fromEntries(subjects.map((s) => [s, null])),
+      });
     }
     bySem.get(r.semester)!.scores[r.subject] = r.percentage;
   }
@@ -40,59 +43,10 @@ function buildChartData(rows: { semester: string; semOrder: number; subject: str
   return { data, subjects };
 }
 
-const EXAM_TYPE_SHORT: Record<string, string> = {
-  midterm: "중간",
-  final: "기말",
-  mock_exam: "모의",
-};
-
-const EXAM_TYPE_ORDER: Record<string, number> = {
-  midterm: 1,
-  final: 2,
-  mock_exam: 3,
-};
-
-function buildExamChartData(
-  rows: { semOrder: number; subject: string; percentage: number; examType: string }[]
-) {
-  const subjects = [...new Set(rows.map((r) => r.subject))];
-  type Bucket = { semOrder: number; etOrder: number; label: string; scores: Record<string, number | null> };
-  const byKey = new Map<string, Bucket>();
-  for (const r of rows) {
-    const key = `${r.semOrder}__${r.examType}`;
-    if (!byKey.has(key)) {
-      const year = Math.floor(r.semOrder / 10);
-      const semNum = r.semOrder % 10;
-      const short = EXAM_TYPE_SHORT[r.examType] ?? r.examType;
-      byKey.set(key, {
-        semOrder: r.semOrder,
-        etOrder: EXAM_TYPE_ORDER[r.examType] ?? 99,
-        label: `${year}-${semNum} ${short}`,
-        scores: Object.fromEntries(subjects.map((s) => [s, null])),
-      });
-    }
-    byKey.get(key)!.scores[r.subject] = r.percentage;
-  }
-  const data = [...byKey.values()]
-    .sort((a, b) => a.semOrder - b.semOrder || a.etOrder - b.etOrder)
-    .map(({ label, scores }) => {
-      const values = Object.values(scores).filter((v): v is number => v !== null);
-      const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-      return {
-        semester: label,
-        ...scores,
-        "전체 평균": avg !== null ? Math.round(avg * 10) / 10 : null,
-      };
-    });
-  return { data, subjects };
-}
-
 type SubjectStat = {
   subject: string;
   count: number;
   avg: number;
-  max: number;
-  min: number;
   trend: "up" | "down" | "stable" | "new";
   level: "strong" | "caution" | "weak";
 };
@@ -123,8 +77,6 @@ function computeSubjectStats(
         subject,
         count: pcts.length,
         avg: roundedAvg,
-        max: Math.max(...pcts),
-        min: Math.min(...pcts),
         trend,
         level: (roundedAvg >= 80 ? "strong" : roundedAvg >= 60 ? "caution" : "weak") as SubjectStat["level"],
       };
@@ -145,6 +97,13 @@ const levelBadgeClass = (l: SubjectStat["level"]) =>
 const levelLabel = (l: SubjectStat["level"]) =>
   l === "strong" ? "우수" : l === "caution" ? "보통" : "취약";
 
+const feedbackStyle = {
+  danger: "bg-red-50 border-red-200 text-red-700",
+  warning: "bg-yellow-50 border-yellow-200 text-yellow-700",
+  success: "bg-green-50 border-green-200 text-green-700",
+  info: "bg-blue-50 border-blue-200 text-blue-700",
+};
+
 export default async function AnalyticsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -156,9 +115,11 @@ export default async function AnalyticsPage() {
         exam_type,
         subjects ( name ),
         semesters!exam_semester ( year, semester_type ),
-        grade_records ( percentage )
+        grade_records ( percentage, score, max_score ),
+        created_at
       `)
-      .eq("user_id", user!.id),
+      .eq("user_id", user!.id)
+      .order("created_at", { ascending: false }),
     supabase
       .from("score_predictions")
       .select(`
@@ -185,17 +146,15 @@ export default async function AnalyticsPage() {
       examType: r.exam_type,
       subject: name,
       percentage: Number(pct),
+      score: r.grade_records[0].score,
+      maxScore: r.grade_records[0].max_score,
       semester: formatSemester(sem.year, type),
       semOrder: semesterOrder(sem.year, type),
+      createdAt: r.created_at,
     }];
   });
 
-  const examRows = validRows.filter((r) => EXAM_TYPES.includes(r.examType));
-  const assignmentRows = validRows.filter((r) => ASSIGNMENT_TYPES.includes(r.examType));
-
-  const exam = buildExamChartData(examRows);
-  const assignment = buildChartData(assignmentRows);
-
+  const chart = buildChartData(validRows);
   const subjectStats = computeSubjectStats(validRows);
 
   const predictions = (predRows ?? []).map((r) => {
@@ -226,85 +185,118 @@ export default async function AnalyticsPage() {
   if (subjectStats.length > 0 && weakSubjects.length === 0 && downSubjects.length === 0)
     feedbacks.push({ type: "info", message: "전반적으로 안정적인 성적을 유지하고 있습니다." });
 
-  const feedbackStyle = {
-    danger: "bg-red-50 border-red-200 text-red-700",
-    warning: "bg-yellow-50 border-yellow-200 text-yellow-700",
-    success: "bg-green-50 border-green-200 text-green-700",
-    info: "bg-blue-50 border-blue-200 text-blue-700",
-  };
+  /* 최근 성적 기록 (최대 8개) */
+  const recentRecords = validRows.slice(0, 8);
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto px-4 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">성적 분석</h1>
+        <h1 className="text-2xl font-bold">분석</h1>
         <p className="text-muted-foreground text-sm mt-1">
           과목별 성적 추이를 확인하세요
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        <div className="rounded-xl border bg-white p-6">
-          <h2 className="text-base font-semibold mb-6">시험 성적 추이</h2>
-          <GradeChart data={exam.data} subjects={exam.subjects} />
-        </div>
-        <div className="rounded-xl border bg-white p-6">
-          <h2 className="text-base font-semibold mb-6">수행평가 성적 추이</h2>
-          <GradeChart data={assignment.data} subjects={assignment.subjects} />
-        </div>
-      </div>
-
-      {subjectStats.length > 0 && (
-        <>
-          <div className="rounded-xl border bg-white p-6">
-            <h2 className="text-base font-semibold mb-4">과목별 통계</h2>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-muted-foreground text-left">
-                  <th className="pb-2 font-medium">과목</th>
-                  <th className="pb-2 font-medium text-right">평균</th>
-                  <th className="pb-2 font-medium text-right">최고</th>
-                  <th className="pb-2 font-medium text-right">최저</th>
-                  <th className="pb-2 font-medium text-right">시험 수</th>
-                  <th className="pb-2 font-medium text-right">추이</th>
-                  <th className="pb-2 font-medium text-right">등급</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subjectStats.map((s) => (
-                  <tr key={s.subject} className="border-b last:border-0">
-                    <td className="py-2.5 font-medium">{s.subject}</td>
-                    <td className="py-2.5 text-right font-semibold">{s.avg}%</td>
-                    <td className="py-2.5 text-right text-green-600">{s.max.toFixed(1)}%</td>
-                    <td className="py-2.5 text-right text-red-500">{s.min.toFixed(1)}%</td>
-                    <td className="py-2.5 text-right text-muted-foreground">{s.count}회</td>
-                    <td className={`py-2.5 text-right font-bold ${trendColor(s.trend)}`}>
-                      {trendIcon(s.trend)}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${levelBadgeClass(s.level)}`}>
-                        {levelLabel(s.level)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="grid grid-cols-2 gap-6 items-start">
+        {/* 왼쪽: 종합 성적 그래프 + 학습 피드백 */}
+        <div className="space-y-6">
+          {/* 종합 성적 */}
+          <div className="rounded-2xl border bg-white p-6">
+            <h2 className="text-base font-semibold mb-6">종합 성적</h2>
+            <GradeChart data={chart.data} subjects={chart.subjects} />
           </div>
 
-          {feedbacks.length > 0 && (
-            <div className="rounded-xl border bg-white p-6 space-y-3">
-              <h2 className="text-base font-semibold mb-1">학습 피드백</h2>
-              {feedbacks.map((f, i) => (
+          {/* 학습 피드백 */}
+          <div className="rounded-2xl border bg-white p-6 space-y-3">
+            <h2 className="text-base font-semibold">학습 피드백</h2>
+            {feedbacks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">성적을 등록하면 피드백이 생성됩니다.</p>
+            ) : (
+              feedbacks.map((f, i) => (
                 <div key={i} className={`rounded-lg border px-4 py-3 text-sm ${feedbackStyle[f.type]}`}>
                   {f.message}
                 </div>
-              ))}
+              ))
+            )}
+          </div>
+
+          {/* 과목별 통계 테이블 */}
+          {subjectStats.length > 0 && (
+            <div className="rounded-2xl border bg-white p-6">
+              <h2 className="text-base font-semibold mb-4">과목별 통계</h2>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-left">
+                    <th className="pb-2 font-medium">과목</th>
+                    <th className="pb-2 font-medium text-right">평균</th>
+                    <th className="pb-2 font-medium text-right">시험 수</th>
+                    <th className="pb-2 font-medium text-right">추이</th>
+                    <th className="pb-2 font-medium text-right">등급</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subjectStats.map((s) => (
+                    <tr key={s.subject} className="border-b last:border-0">
+                      <td className="py-2.5 font-medium">{s.subject}</td>
+                      <td className="py-2.5 text-right font-semibold">{s.avg}%</td>
+                      <td className="py-2.5 text-right text-muted-foreground">{s.count}회</td>
+                      <td className={`py-2.5 text-right font-bold ${trendColor(s.trend)}`}>
+                        {trendIcon(s.trend)}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${levelBadgeClass(s.level)}`}>
+                          {levelLabel(s.level)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-        </>
-      )}
+        </div>
 
-      <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
+        {/* 오른쪽: 최근 성적 기록 + AI 성적 예측 */}
+        <div className="space-y-6 sticky top-24">
+          {/* 최근 성적 기록 */}
+          <div className="rounded-2xl border bg-white p-6">
+            <h2 className="text-base font-semibold mb-4">최근 성적 기록</h2>
+            {recentRecords.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                성적을 등록하면 여기에 표시됩니다.
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-left">
+                    <th className="pb-2 font-medium">학기</th>
+                    <th className="pb-2 font-medium">과목</th>
+                    <th className="pb-2 font-medium text-right">점수</th>
+                    <th className="pb-2 font-medium text-right">백분율</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentRecords.map((r, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-2 text-muted-foreground text-xs">{r.semester}</td>
+                      <td className="py-2 font-medium">{r.subject}</td>
+                      <td className="py-2 text-right">{r.score}/{r.maxScore}</td>
+                      <td className={`py-2 text-right font-semibold ${
+                        r.percentage >= 80 ? "text-green-600" : r.percentage >= 60 ? "text-yellow-600" : "text-red-500"
+                      }`}>
+                        {r.percentage.toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* AI 성적 예측 */}
+          <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
+        </div>
+      </div>
     </div>
   );
 }

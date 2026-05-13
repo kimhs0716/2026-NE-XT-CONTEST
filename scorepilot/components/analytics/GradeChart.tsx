@@ -8,6 +8,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  ResponsiveContainer,
 } from "recharts";
 
 export const CHART_COLORS = [
@@ -63,10 +64,9 @@ type DataPoint = Record<string, string | number | null>;
 type Props = {
   data: DataPoint[];
   subjects: string[];
-  width?: number;
 };
 
-export default function GradeChart({ data, subjects, width = 460 }: Props) {
+export default function GradeChart({ data, subjects }: Props) {
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
@@ -76,10 +76,9 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
   }
 
   return (
-    <div>
+    <div className="w-full">
+      <ResponsiveContainer width="100%" height={320}>
       <LineChart
-        width={width}
-        height={360}
         data={data}
         margin={{ top: 5, right: 40, left: 0, bottom: 5 }}
       >
@@ -121,6 +120,7 @@ export default function GradeChart({ data, subjects, width = 460 }: Props) {
           connectNulls={false}
         />
       </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

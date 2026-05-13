@@ -24,7 +24,7 @@ export default async function MockExamPage() {
     .order("exam_month", { ascending: false });
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto px-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">모의고사</h1>
         <p className="text-muted-foreground text-sm mt-1">

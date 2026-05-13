@@ -384,8 +384,8 @@ export default function CalendarView({
 
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px] items-start">
-        <section className="min-w-0 space-y-4">
+      <div className="h-full grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px] overflow-hidden">
+        <section className="min-w-0 flex flex-col gap-4 overflow-hidden">
           <div className="flex items-center justify-between gap-4 rounded-2xl border bg-white px-4 py-3 md:px-5">
             <div className="flex items-center gap-2 min-w-0">
               <Button variant="outline" size="icon" onClick={goToPrev}>
@@ -407,8 +407,8 @@ export default function CalendarView({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border bg-white">
-            <div className="flex w-full border-b bg-muted/20">
+          <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border bg-white flex flex-col">
+            <div className="shrink-0 flex w-full border-b bg-muted/20">
               {WEEKDAYS.map((d, colIdx) => (
                 <div
                   key={d}
@@ -423,10 +423,11 @@ export default function CalendarView({
               ))}
             </div>
 
+            <div className="flex flex-col flex-1 min-h-0">
             {weeks.map((week, rowIdx) => {
               const isLastRow = rowIdx === weeks.length - 1;
               return (
-                <div key={rowIdx} className="flex w-full">
+                <div key={rowIdx} className="flex w-full flex-1 min-h-0">
                   {week.map((day, colIdx) => {
                     const isLastCol = colIdx === 6;
                     const isSun = colIdx === 0;
@@ -438,7 +439,7 @@ export default function CalendarView({
                         <div
                           key={colIdx}
                           style={{ width: `${100 / 7}%` }}
-                          className={cn("flex-none min-h-[76px] bg-muted/10", cellBorder)}
+                          className={cn("flex-none bg-muted/10 overflow-hidden", cellBorder)}
                         />
                       );
                     }
@@ -451,7 +452,7 @@ export default function CalendarView({
                       <div
                         key={colIdx}
                         style={{ width: `${100 / 7}%` }}
-                        className={cn("flex-none min-h-[76px] p-1 bg-white group", cellBorder)}
+                        className={cn("flex-none overflow-hidden p-1 bg-white group", cellBorder)}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span
@@ -507,15 +508,16 @@ export default function CalendarView({
                 </div>
               );
             })}
+            </div>
           </div>
         </section>
 
-        <aside className="w-full xl:w-[340px] xl:min-w-[340px] xl:max-w-[340px] space-y-4 xl:sticky xl:top-8">
-          <div className="rounded-2xl border bg-white p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-muted-foreground">
+        <aside className="w-full xl:w-[340px] xl:min-w-[340px] xl:max-w-[340px] flex flex-col gap-4 overflow-hidden">
+          <div className="rounded-2xl border bg-white p-4 space-y-3 flex flex-col flex-1 overflow-hidden">
+            <h3 className="text-sm font-semibold text-muted-foreground shrink-0">
               {month + 1}월 일정 목록
             </h3>
-            <div className="max-h-[calc(100vh-260px)] space-y-1 overflow-auto pr-1">
+            <div className="flex-1 space-y-1 overflow-y-auto pr-1 min-h-0">
               {monthEvents.length > 0 ? (
                 monthEvents.map((e, i) => (
                   <button
@@ -557,7 +559,7 @@ export default function CalendarView({
             </div>
           </div>
 
-          <div className="rounded-2xl border bg-white p-4 space-y-3">
+          <div className="rounded-2xl border bg-white p-4 space-y-3 shrink-0">
             <h3 className="text-sm font-semibold text-muted-foreground">범례</h3>
             <div className="flex flex-wrap gap-2">
               {Object.entries(EVENT_TYPE_LABEL).map(([type, label]) => (

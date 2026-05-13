@@ -2,17 +2,30 @@ import Link from "next/link";
 import LogoutButton from "@/components/layout/LogoutButton";
 import NavLinks from "@/components/layout/NavLinks";
 
-export default function Nav({ schoolLevel }: { schoolLevel: "middle" | "high" | null }) {
+export default function Nav({
+  userName,
+  schoolLevel,
+}: {
+  userName: string | null;
+  schoolLevel: "middle" | "high" | null;
+}) {
   return (
-    <header className="border-b bg-white">
-      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+    <header className="border-b bg-white sticky top-0 z-50">
+      <div className="h-14 px-8 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="font-bold text-lg">
-            Scorepilot
+          <Link href="/dashboard" className="font-bold text-lg tracking-tight">
+            ScorePilot
           </Link>
           <NavLinks schoolLevel={schoolLevel} />
         </div>
-        <LogoutButton />
+        <div className="flex items-center gap-3">
+          {userName && (
+            <span className="text-sm text-muted-foreground font-medium">
+              {userName}
+            </span>
+          )}
+          <LogoutButton />
+        </div>
       </div>
     </header>
   );

@@ -47,14 +47,14 @@ export default async function CalendarPage() {
   const subjects = (subjectRows ?? []).map((s) => s.name);
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-4 md:px-6 lg:px-8">
-      <div className="space-y-6 min-w-0">
-        <div>
-          <h1 className="text-2xl font-bold">캘린더</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            시험·수행평가 일정을 확인하세요
-          </p>
-        </div>
+    <div className="px-[13vw] -my-8 h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
+      <div className="shrink-0 pt-6 pb-3">
+        <h1 className="text-2xl font-bold">캘린더</h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          시험·수행평가 일정을 확인하세요
+        </p>
+      </div>
+      <div className="flex-1 min-h-0 pb-4">
         <CalendarView schedules={schedules} subjects={subjects} />
       </div>
     </div>
