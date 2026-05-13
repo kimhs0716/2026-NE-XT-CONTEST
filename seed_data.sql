@@ -610,6 +610,18 @@ BEGIN
   (high_id, h_sci,  h_s5, '과학 취약 개념 정리',     'review',          '2026-05-18', 'high',   false, null);
 
   -- ============================================================
+  -- 11-1. SUBJECT GOALS
+  -- ============================================================
+  INSERT INTO public.subject_goals (user_id, subject_id, target_score, target_date, memo)
+  VALUES
+  (mid_id,  m_math, 85, '2026-06-17', '기말고사 전까지 함수 단원 보강'),
+  (mid_id,  m_eng,  92, '2026-06-17', '현재 강점 유지'),
+  (mid_id,  m_sci,  80, '2026-06-17', '전기 단원 오답 줄이기'),
+  (high_id, h_math, 82, '2026-06-18', '수열·극한 단원 회복'),
+  (high_id, h_sci,  78, '2026-06-18', '취약 개념 정리 후 문제 풀이'),
+  (high_id, h_eng,  94, '2026-06-18', '독해 속도 유지');
+
+  -- ============================================================
   -- 12. MOCK EXAM RECORDS (고등학생 전용 — 수능 모의고사)
   -- ============================================================
   INSERT INTO public.mock_exam_records (user_id, exam_year, exam_month, subject, raw_score, percentile, grade, target_score)

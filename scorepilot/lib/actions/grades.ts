@@ -4,6 +4,20 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { examTypeLabels, formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
 
+function revalidateGradeViews(subjectName?: string) {
+  revalidatePath("/grades");
+  revalidatePath("/grades/[subject]", "page");
+  revalidatePath("/analytics");
+  revalidatePath("/analytics/[subject]", "page");
+  revalidatePath("/strategy");
+  revalidatePath("/dashboard");
+  if (subjectName) {
+    const encoded = encodeURIComponent(subjectName);
+    revalidatePath(`/grades/${encoded}`);
+    revalidatePath(`/analytics/${encoded}`);
+  }
+}
+
 export async function addGrade(_: unknown, formData: FormData) {
   try {
     const supabase = await createClient();
@@ -104,7 +118,7 @@ export async function addGrade(_: unknown, formData: FormData) {
     });
     if (gradeError) return { error: `성적 저장 중 오류가 발생했습니다: ${gradeError.message}` };
 
-    revalidatePath("/grades");
+    revalidateGradeViews(subjectName);
     return { success: true };
   } catch (e) {
     console.error("[addGrade]", e);
@@ -194,7 +208,7 @@ export async function updateGrade(_: unknown, formData: FormData) {
       .eq("user_id", user.id);
     if (gradeError) return { error: `성적 수정 중 오류가 발생했습니다: ${gradeError.message}` };
 
-    revalidatePath("/grades");
+    revalidateGradeViews(subjectName);
     return { success: true };
   } catch (e) {
     console.error("[updateGrade]", e);
@@ -207,6 +221,15 @@ export async function deleteGrade(examId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
+  const { data: exam } = await supabase
+    .from("exams")
+    .select("subjects ( name )")
+    .eq("id", examId)
+    .eq("user_id", user.id)
+    .single();
+  const subjects = exam?.subjects as { name: string } | { name: string }[] | null | undefined;
+  const subject = Array.isArray(subjects) ? subjects[0]?.name : subjects?.name;
+
   const { error } = await supabase
     .from("exams")
     .delete()
@@ -215,6 +238,6 @@ export async function deleteGrade(examId: string) {
 
   if (error) return { error: "삭제 중 오류가 발생했습니다." };
 
-  revalidatePath("/grades");
+  revalidateGradeViews(subject);
   return { success: true };
 }

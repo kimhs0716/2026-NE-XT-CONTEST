@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { commonSubjects } from "@/lib/constants/grades";
+import { commonSubjects, sortSubjectsByPreferredOrder } from "@/lib/constants/grades";
 import { addSchedule, updateSchedule, deleteSchedule, toggleScheduleComplete } from "@/lib/actions/calendar";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +71,7 @@ function AddScheduleDialog({
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(addSchedule, null);
-  const [subjectMode, setSubjectMode] = useState<"none" | "select" | "custom">("none");
+  const [subjectMode, setSubjectMode] = useState<"select" | "custom">("custom");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [customSubject, setCustomSubject] = useState("");
 
@@ -79,9 +79,9 @@ function AddScheduleDialog({
     if (state?.success) onClose();
   }, [state]);
 
-  const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
+  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
   const subjectName =
-    subjectMode === "select" ? selectedSubject : subjectMode === "custom" ? customSubject : "";
+    subjectMode === "select" ? selectedSubject : customSubject;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -110,17 +110,15 @@ function AddScheduleDialog({
           <div className="space-y-2">
             <Label>과목 (선택)</Label>
             <select
-              value={subjectMode === "none" ? "" : subjectMode === "custom" ? "__custom__" : selectedSubject}
+              value={subjectMode === "custom" ? "" : selectedSubject}
               onChange={(e) => {
-                if (!e.target.value) setSubjectMode("none");
-                else if (e.target.value === "__custom__") { setSubjectMode("custom"); setSelectedSubject(""); }
+                if (!e.target.value) { setSubjectMode("custom"); setSelectedSubject(""); }
                 else { setSubjectMode("select"); setSelectedSubject(e.target.value); }
               }}
               className={selectClass}
             >
-              <option value="">과목 없음</option>
               {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-              <option value="__custom__">직접 입력...</option>
+              <option value="">기타(직접 입력)</option>
             </select>
             {subjectMode === "custom" && (
               <Input
@@ -155,13 +153,13 @@ function EditScheduleDialog({
 }) {
   const [state, action, pending] = useActionState(updateSchedule, null);
 
-  const initSubjectMode = (): "none" | "select" | "custom" => {
-    if (!event.subjectName) return "none";
-    const opts = [...new Set([...commonSubjects, ...subjects])];
+  const initSubjectMode = (): "select" | "custom" => {
+    if (!event.subjectName) return "custom";
+    const opts = sortSubjectsByPreferredOrder(commonSubjects);
     return opts.includes(event.subjectName) ? "select" : "custom";
   };
 
-  const [subjectMode, setSubjectMode] = useState<"none" | "select" | "custom">(initSubjectMode);
+  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(initSubjectMode);
   const [selectedSubject, setSelectedSubject] = useState(
     initSubjectMode() === "select" ? (event.subjectName ?? "") : ""
   );
@@ -173,9 +171,9 @@ function EditScheduleDialog({
     if (state?.success) onClose();
   }, [state]);
 
-  const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
+  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
   const subjectName =
-    subjectMode === "select" ? selectedSubject : subjectMode === "custom" ? customSubject : "";
+    subjectMode === "select" ? selectedSubject : customSubject;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -205,17 +203,15 @@ function EditScheduleDialog({
           <div className="space-y-2">
             <Label>과목 (선택)</Label>
             <select
-              value={subjectMode === "none" ? "" : subjectMode === "custom" ? "__custom__" : selectedSubject}
+              value={subjectMode === "custom" ? "" : selectedSubject}
               onChange={(e) => {
-                if (!e.target.value) setSubjectMode("none");
-                else if (e.target.value === "__custom__") { setSubjectMode("custom"); setSelectedSubject(""); }
+                if (!e.target.value) { setSubjectMode("custom"); setSelectedSubject(""); }
                 else { setSubjectMode("select"); setSelectedSubject(e.target.value); }
               }}
               className={selectClass}
             >
-              <option value="">과목 없음</option>
               {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-              <option value="__custom__">직접 입력...</option>
+              <option value="">기타(직접 입력)</option>
             </select>
             {subjectMode === "custom" && (
               <Input

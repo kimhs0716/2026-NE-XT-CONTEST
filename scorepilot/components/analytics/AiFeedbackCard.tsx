@@ -10,8 +10,16 @@ type FeedbackState = {
   isQuotaError: boolean;
 };
 
-export default function AiFeedbackCard() {
-  const [result, setResult] = useState<FeedbackState | null>(null);
+export default function AiFeedbackCard({
+  initialFeedback,
+}: {
+  initialFeedback?: { text: string; createdAt: string } | null;
+}) {
+  const [result, setResult] = useState<FeedbackState | null>(
+    initialFeedback
+      ? { text: initialFeedback.text, source: "llm", isQuotaError: false }
+      : null,
+  );
   const [dataError, setDataError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -45,7 +53,7 @@ export default function AiFeedbackCard() {
           disabled={isPending}
           className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
-          {isPending ? "생성 중…" : result ? "새로고침" : "피드백 생성"}
+          {isPending ? "생성 중…" : result ? "새로 생성" : "피드백 생성"}
         </button>
       </div>
 
@@ -55,7 +63,7 @@ export default function AiFeedbackCard() {
           <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30" />
           <p>버튼을 눌러 맞춤 피드백을 받아보세요.</p>
           <p className="text-xs mt-1">
-            자체 분석 결과를 바탕으로 학습 코멘트를 작성합니다.
+            성적 흐름과 공부 기록을 함께 반영합니다.
           </p>
         </div>
       )}
@@ -80,6 +88,11 @@ export default function AiFeedbackCard() {
         <div className="space-y-3">
           {/* 소스 배지 */}
           <div className="flex items-center gap-2">
+            {initialFeedback && result.text === initialFeedback.text && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                최근 피드백
+              </span>
+            )}
             {result.source === "llm" ? (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
                 <Sparkles className="w-3 h-3" /> AI 피드백
@@ -91,7 +104,7 @@ export default function AiFeedbackCard() {
             )}
             {result.isQuotaError && (
               <span className="text-xs text-muted-foreground">
-                AI 피드백 생성 한도 초과로 기본 피드백을 표시 중
+                잠시 기본 피드백을 표시하고 있어요
               </span>
             )}
           </div>
@@ -103,7 +116,7 @@ export default function AiFeedbackCard() {
       )}
 
       <p className="text-[11px] text-muted-foreground">
-        * 예측 점수·위험도는 자체 모델로 계산됩니다. LLM은 문장 생성 보조 역할입니다.
+        * 피드백은 참고용이며, 실제 학습 계획에 맞게 조정하세요.
       </p>
     </div>
   );

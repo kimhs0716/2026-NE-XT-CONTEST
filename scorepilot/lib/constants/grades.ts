@@ -34,7 +34,23 @@ export const examTypeGroups = [
   },
 ];
 
-export const commonSubjects = [
-  "국어", "수학", "영어", "과학", "사회", "역사",
-  "도덕", "체육", "음악", "미술", "기술가정", "정보",
-];
+export const preferredSubjectOrder = ["국어", "수학", "영어", "사회", "과학"];
+
+export const commonSubjects = [...preferredSubjectOrder];
+
+export function compareSubjectNames(a: string, b: string): number {
+  const rankA = preferredSubjectOrder.indexOf(a);
+  const rankB = preferredSubjectOrder.indexOf(b);
+
+  if (rankA !== -1 || rankB !== -1) {
+    if (rankA === -1) return 1;
+    if (rankB === -1) return -1;
+    return rankA - rankB;
+  }
+
+  return a.localeCompare(b, "ko");
+}
+
+export function sortSubjectsByPreferredOrder(subjects: string[]): string[] {
+  return [...new Set(subjects)].sort(compareSubjectNames);
+}

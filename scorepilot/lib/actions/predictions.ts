@@ -60,5 +60,8 @@ export async function generatePredictions() {
   }
 
   revalidatePath("/analytics");
+  revalidatePath("/analytics/[subject]", "page");
+  revalidatePath("/strategy");
+  revalidatePath("/dashboard");
   return { success: true };
 }

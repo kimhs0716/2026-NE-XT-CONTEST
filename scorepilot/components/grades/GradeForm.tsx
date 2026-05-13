@@ -6,6 +6,7 @@ import {
   examTypeLabels,
   examTypeGroups,
   commonSubjects,
+  sortSubjectsByPreferredOrder,
   semesterTypeLabels,
   type SemesterType,
 } from "@/lib/constants/grades";
@@ -66,7 +67,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
     }
   }, [state]);
 
-  const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
+  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
   const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
 
   return (
@@ -97,7 +98,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
               {subjectOptions.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-              <option value="__custom__">직접 입력...</option>
+              <option value="__custom__">기타(직접 입력)</option>
             </select>
             {subjectMode === "custom" && (
               <Input

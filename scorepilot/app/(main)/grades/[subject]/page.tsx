@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import {
   examTypeLabels,
@@ -11,6 +11,7 @@ import SubjectCharts from "@/components/grades/SubjectCharts";
 import GradeForm from "@/components/grades/GradeForm";
 import GradeEditForm from "@/components/grades/GradeEditForm";
 import GradeDeleteButton from "@/components/grades/GradeDeleteButton";
+import SubjectGoalForm from "@/components/grades/SubjectGoalForm";
 
 type ExamRow = {
   id: string;
@@ -20,6 +21,19 @@ type ExamRow = {
     | { year: number; semester_type: string }[]
     | null;
   grade_records: { score: number; max_score: number; percentage: number; memo: string | null }[];
+};
+
+type SubjectRow = {
+  id: string;
+  name: string;
+  semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
+};
+
+type GoalRow = {
+  subject_id: string;
+  target_score: number;
+  target_date: string | null;
+  memo: string | null;
 };
 
 const MAIN_EXAM_TYPES: ExamType[] = ["midterm", "assignment", "final"];
@@ -34,9 +48,14 @@ export default async function SubjectPage({
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-  const [{ data: subjectRows }, { data: examsBySubject }] = await Promise.all([
-    supabase.from("subjects").select("name").eq("user_id", user!.id).order("name"),
+  const [{ data: subjectRows }, { data: examsBySubject }, { data: goalRows }] = await Promise.all([
+    supabase
+      .from("subjects")
+      .select("id, name, semesters ( year, semester_type )")
+      .eq("user_id", user.id)
+      .order("name"),
     supabase
       .from("exams")
       .select(`
@@ -46,7 +65,11 @@ export default async function SubjectPage({
         subjects ( name ),
         grade_records ( score, max_score, percentage, memo )
       `)
-      .eq("user_id", user!.id),
+      .eq("user_id", user.id),
+    supabase
+      .from("subject_goals")
+      .select("subject_id, target_score, target_date, memo")
+      .eq("user_id", user.id),
   ]);
 
   const grades = ((examsBySubject ?? []) as (ExamRow & { subjects: { name: string } | { name: string }[] | null })[])
@@ -75,7 +98,8 @@ export default async function SubjectPage({
 
   if (grades.length === 0) notFound();
 
-  const subjectNames = [...new Set((subjectRows ?? []).map((s) => s.name))];
+  const typedSubjectRows = (subjectRows ?? []) as SubjectRow[];
+  const subjectNames = [...new Set(typedSubjectRows.map((s) => s.name))];
 
   /* 학기 목록 */
   const semesterLabels = [...new Set(grades.map((g) => g.semesterLabel))];
@@ -112,6 +136,26 @@ export default async function SubjectPage({
     return [{ name: examTypeLabels[et], value: Math.round(avg * 10) / 10 }];
   });
 
+  const subjectIds = typedSubjectRows
+    .filter((s) => s.name === subject)
+    .map((s) => {
+      const sem = Array.isArray(s.semesters) ? s.semesters[0] : s.semesters;
+      return {
+        id: s.id,
+        order: sem ? sem.year * 10 + (sem.semester_type === "semester_2" ? 2 : 1) : 0,
+      };
+    })
+    .sort((a, b) => b.order - a.order);
+  const goalSubjectId = subjectIds[0]?.id;
+  const goal = ((goalRows ?? []) as GoalRow[]).find((row) =>
+    subjectIds.some((s) => s.id === row.subject_id),
+  );
+  const latestPercentage = grades[grades.length - 1]?.percentage ?? null;
+  const targetGap =
+    goal && latestPercentage !== null
+      ? Math.round((latestPercentage - Number(goal.target_score)) * 10) / 10
+      : null;
+
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-6">
       {/* 헤더 */}
@@ -125,7 +169,58 @@ export default async function SubjectPage({
           <h1 className="text-2xl font-bold mt-1">{subject}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{latestSemester}</p>
         </div>
-        <GradeForm subjects={subjectNames} />
+        <div className="flex items-center gap-2">
+          {goalSubjectId && (
+            <SubjectGoalForm
+              subjectId={goalSubjectId}
+              subjectName={subject}
+              goal={
+                goal
+                  ? {
+                      targetScore: Number(goal.target_score),
+                      targetDate: goal.target_date,
+                      memo: goal.memo,
+                    }
+                  : null
+              }
+            />
+          )}
+          <GradeForm subjects={subjectNames} />
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border bg-white p-5">
+          <p className="text-xs text-muted-foreground mb-1">최근 점수</p>
+          <p className="text-2xl font-bold">
+            {latestPercentage !== null ? `${latestPercentage.toFixed(1)}%` : "-"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">{latestSemester} 기준</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-5">
+          <p className="text-xs text-muted-foreground mb-1">목표 점수</p>
+          <p className="text-2xl font-bold">
+            {goal ? `${Number(goal.target_score).toFixed(1)}%` : "미설정"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {goal?.target_date ? `${goal.target_date}까지` : "목표를 설정해 추적하세요"}
+          </p>
+        </div>
+        <div className="rounded-2xl border bg-white p-5">
+          <p className="text-xs text-muted-foreground mb-1">목표 대비 현재 위치</p>
+          <p className={`text-2xl font-bold ${targetGap !== null && targetGap >= 0 ? "text-green-600" : "text-yellow-600"}`}>
+            {targetGap === null ? "-" : targetGap > 0 ? `+${targetGap}점` : targetGap === 0 ? "목표 달성" : `${targetGap}점`}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {targetGap === null
+              ? goal?.memo ?? "목표를 설정해 추적하세요"
+              : targetGap > 0
+                ? `목표보다 ${targetGap}점 앞서 있어요`
+                : targetGap === 0
+                  ? "목표에 도달했어요"
+                  : `목표까지 ${Math.abs(targetGap)}점 남음`}
+          </p>
+        </div>
       </div>
 
       {/* 그래프 영역 */}

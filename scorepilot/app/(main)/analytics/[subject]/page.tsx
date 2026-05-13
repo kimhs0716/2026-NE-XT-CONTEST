@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { formatSemester, type SemesterType, type ExamType } from "@/lib/constants/grades";
 import GradeChart from "@/components/analytics/GradeChart";
 import AnalysisModeSelect from "@/components/analytics/AnalysisModeSelect";
@@ -121,6 +122,7 @@ export default async function SubjectAnalyticsPage({
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   // 해당 과목의 성적/학습 데이터 조회
   const [
@@ -137,24 +139,23 @@ export default async function SubjectAnalyticsPage({
         semesters!exam_semester ( year, semester_type ),
         grade_records ( score, max_score, percentage )
       `)
-      .eq("user_id", user!.id),
+      .eq("user_id", user.id),
     supabase
       .from("study_logs")
       .select(`id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name )`)
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("study_date", { ascending: false })
       .limit(20),
     supabase
       .from("study_tasks")
       .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name )`)
-      .eq("user_id", user!.id)
-      .eq("is_completed", false)
+      .eq("user_id", user.id)
       .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(20),
+      .limit(40),
     supabase
       .from("subjects")
       .select("id, name")
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("name"),
   ]);
 
@@ -225,13 +226,14 @@ export default async function SubjectAnalyticsPage({
     })
     .slice(0, 10);
 
-  const pendingStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[])
+  const subjectStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[])
     .flatMap((r) => {
       const subjectName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
       if (subjectName !== subject) return [];
       return [{ ...r, subject: subjectName }];
-    })
-    .slice(0, 3);
+    });
+  const pendingStudyTasks = subjectStudyTasks.filter((task) => !task.is_completed);
+  const completedStudyTasks = subjectStudyTasks.filter((task) => task.is_completed).slice(0, 8);
 
   const riskCfg = RISK_CONFIG[risk.riskLevel];
   const deltaColor =
@@ -365,8 +367,9 @@ export default async function SubjectAnalyticsPage({
                 이 과목의 공부 기록을 추가하면 여기에 표시됩니다.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
+              <div className="h-[240px] overflow-y-auto pr-1">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
                   <tr className="border-b text-muted-foreground text-left">
                     <th className="pb-2 font-medium">날짜</th>
                     <th className="pb-2 font-medium">과목</th>
@@ -375,8 +378,8 @@ export default async function SubjectAnalyticsPage({
                     <th className="pb-2 font-medium text-right">집중도</th>
                     <th className="pb-2 font-medium text-right">관리</th>
                   </tr>
-                </thead>
-                <tbody>
+                  </thead>
+                  <tbody>
                   {recentStudyLogs.map((r, i) => (
                     <tr key={i} className="border-b last:border-0">
                       <td className="py-2 text-muted-foreground text-xs whitespace-nowrap">
@@ -431,8 +434,9 @@ export default async function SubjectAnalyticsPage({
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             )}
             {pendingStudyTasks.length > 0 && (
               <div className="mt-4 border-t pt-4">
@@ -440,11 +444,18 @@ export default async function SubjectAnalyticsPage({
                   <p className="text-xs font-semibold text-muted-foreground">진행 중 할 일</p>
                   <StudyTaskForm subjects={subjectOptions} defaultSubjectName={subject} />
                 </div>
-                <div className="space-y-2">
-                  {pendingStudyTasks.map((task, i) => (
-                    <div key={i} className="flex items-center justify-between gap-3 text-xs">
+                <div className="h-[240px] space-y-2 overflow-y-auto pr-1">
+                  {pendingStudyTasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between gap-3 text-xs">
                       <div className="min-w-0">
-                        <p className="truncate">{task.title}</p>
+                        <p className="truncate">
+                          <span
+                            className={`mr-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${subjectBadgeClass(subject)}`}
+                          >
+                            {subject}
+                          </span>
+                          {task.title}
+                        </p>
                         <p className="text-muted-foreground">
                           {task.priority ? priorityLabels[task.priority] ?? task.priority : "우선순위 없음"}
                         </p>
@@ -475,6 +486,31 @@ export default async function SubjectAnalyticsPage({
               <div className="mt-4 border-t pt-4 flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">진행 중인 공부 할 일이 없습니다.</p>
                 <StudyTaskForm subjects={subjectOptions} defaultSubjectName={subject} />
+              </div>
+            )}
+            {completedStudyTasks.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="mb-2 text-xs font-semibold text-muted-foreground">최근 완료한 할 일</p>
+                <div className="space-y-2">
+                  {completedStudyTasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between gap-3 text-xs opacity-80">
+                      <div className="min-w-0">
+                        <p className="truncate line-through">
+                          <span
+                            className={`mr-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold no-underline ${subjectBadgeClass(subject)}`}
+                          >
+                            {subject}
+                          </span>
+                          {task.title}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {task.priority ? priorityLabels[task.priority] ?? task.priority : "우선순위 없음"}
+                        </p>
+                      </div>
+                      <StudyTaskActions taskId={task.id} isCompleted={task.is_completed} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

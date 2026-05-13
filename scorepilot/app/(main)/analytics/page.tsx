@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import { formatSemester, type SemesterType } from "@/lib/constants/grades";
 import GradeChart from "@/components/analytics/GradeChart";
 import PredictionSection from "@/components/analytics/PredictionSection";
@@ -53,6 +54,11 @@ type SubjectRow = {
   name: string;
 };
 
+type AnalysisReportRow = {
+  summary: string | null;
+  created_at: string;
+};
+
 function semesterOrder(year: number, type: SemesterType): number {
   return year * 10 + (type === "semester_2" ? 2 : 1);
 }
@@ -100,7 +106,7 @@ const concentrationBadgeClass: Record<number, string> = {
 };
 
 function subjectBadgeClass(subject: string): string {
-  if (subject === "-") return "bg-slate-100 text-slate-600";
+  if (subject === "기타") return "bg-slate-100 text-slate-600";
   const hash = [...subject].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   return subjectBadgePalettes[hash % subjectBadgePalettes.length];
 }
@@ -142,6 +148,7 @@ function buildChartData(
 export default async function AnalyticsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   const [
     { data: rows },
@@ -149,39 +156,47 @@ export default async function AnalyticsPage() {
     { data: studyLogRows },
     { data: studyTaskRows },
     { data: subjectRows },
+    { data: feedbackRows },
   ] = await Promise.all([
     supabase
       .from("exams")
       .select(
         `exam_type, subjects ( name ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score ), created_at`,
       )
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("score_predictions")
       .select(`predicted_score, prediction_target, confidence, basis, created_at, subjects ( name )`)
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("study_logs")
       .select(
         `id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name )`,
       )
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("study_date", { ascending: false })
-      .limit(8),
+      .limit(20),
     supabase
       .from("study_tasks")
       .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name )`)
-      .eq("user_id", user!.id)
-      .eq("is_completed", false)
+      .eq("user_id", user.id)
       .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(3),
+      .limit(40),
     supabase
       .from("subjects")
       .select("id, name")
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("name"),
+    supabase
+      .from("analysis_reports")
+      .select("summary, created_at")
+      .eq("user_id", user.id)
+      .eq("report_type", "overall")
+      .eq("title", "AI 학습 피드백")
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   // ── 유효 성적 데이터 ──────────────────────────────────────────
@@ -259,13 +274,16 @@ export default async function AnalyticsPage() {
 
   const recentStudyLogs = ((studyLogRows ?? []) as StudyLogRow[]).map((r) => {
     const subject = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-    return { ...r, subject: subject ?? "-" };
+    return { ...r, subject: subject ?? "기타" };
   });
 
-  const pendingStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[]).map((r) => {
+  const allStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[]).map((r) => {
     const subject = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-    return { ...r, subject: subject ?? null };
+    return { ...r, subject: subject ?? "기타" };
   });
+  const pendingStudyTasks = allStudyTasks.filter((task) => !task.is_completed);
+  const completedStudyTasks = allStudyTasks.filter((task) => task.is_completed).slice(0, 8);
+  const savedFeedback = ((feedbackRows ?? []) as AnalysisReportRow[])[0];
 
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-6">
@@ -303,7 +321,13 @@ export default async function AnalyticsPage() {
           <div className="rounded-2xl border bg-white p-6">
             <h2 className="text-base font-semibold mb-4">학습 피드백</h2>
             <div className="mb-4">
-              <AiFeedbackCard />
+              <AiFeedbackCard
+                initialFeedback={
+                  savedFeedback?.summary
+                    ? { text: savedFeedback.summary, createdAt: savedFeedback.created_at }
+                    : null
+                }
+              />
             </div>
             {subjectAnalysisList.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
@@ -337,73 +361,75 @@ export default async function AnalyticsPage() {
                 공부 기록을 추가하면 여기에 표시됩니다.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-muted-foreground text-left">
-                    <th className="pb-2 font-medium">날짜</th>
-                    <th className="pb-2 font-medium">과목</th>
-                    <th className="pb-2 font-medium text-right">공부 시간</th>
-                    <th className="pb-2 font-medium text-right">난이도</th>
-                    <th className="pb-2 font-medium text-right">집중도</th>
-                    <th className="pb-2 font-medium text-right">관리</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentStudyLogs.map((r, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="py-2 text-muted-foreground text-xs whitespace-nowrap">
-                        {formatStudyDate(r.study_date)}
-                      </td>
-                      <td className="py-2">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${subjectBadgeClass(r.subject)}`}
-                        >
-                          {r.subject}
-                        </span>
-                      </td>
-                      <td className="py-2 text-right text-xs">
-                        {formatDuration(r.duration_minutes)}
-                      </td>
-                      <td className="py-2 text-right text-xs">
-                        {r.difficulty ? (
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 font-semibold ${difficultyBadgeClass[r.difficulty] ?? "bg-slate-100 text-slate-600"}`}
-                          >
-                            {difficultyLabels[r.difficulty] ?? r.difficulty}
-                          </span>
-                        ) : "-"}
-                      </td>
-                      <td className="py-2 text-right text-xs font-semibold">
-                        {r.concentration_level != null ? (
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 ${concentrationBadgeClass[r.concentration_level] ?? "bg-slate-100 text-slate-600"}`}
-                          >
-                            {r.concentration_level}/5
-                          </span>
-                        ) : "-"}
-                      </td>
-                      <td className="py-2">
-                        <div className="flex items-center justify-end gap-1">
-                          <StudyLogForm
-                            subjects={subjectOptions}
-                            triggerLabel="수정"
-                            log={{
-                              id: r.id,
-                              subjectId: r.subject_id,
-                              studyDate: r.study_date,
-                              durationMinutes: r.duration_minutes,
-                              difficulty: r.difficulty,
-                              concentrationLevel: r.concentration_level,
-                              content: r.content,
-                            }}
-                          />
-                          <StudyLogDeleteButton logId={r.id} />
-                        </div>
-                      </td>
+              <div className="h-[240px] overflow-y-auto pr-1">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b text-muted-foreground text-left">
+                      <th className="pb-2 font-medium">날짜</th>
+                      <th className="pb-2 font-medium">과목</th>
+                      <th className="pb-2 font-medium text-right">공부 시간</th>
+                      <th className="pb-2 font-medium text-right">난이도</th>
+                      <th className="pb-2 font-medium text-right">집중도</th>
+                      <th className="pb-2 font-medium text-right">관리</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {recentStudyLogs.map((r, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="py-2 text-muted-foreground text-xs whitespace-nowrap">
+                          {formatStudyDate(r.study_date)}
+                        </td>
+                        <td className="py-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${subjectBadgeClass(r.subject)}`}
+                          >
+                            {r.subject}
+                          </span>
+                        </td>
+                        <td className="py-2 text-right text-xs">
+                          {formatDuration(r.duration_minutes)}
+                        </td>
+                        <td className="py-2 text-right text-xs">
+                          {r.difficulty ? (
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 font-semibold ${difficultyBadgeClass[r.difficulty] ?? "bg-slate-100 text-slate-600"}`}
+                            >
+                              {difficultyLabels[r.difficulty] ?? r.difficulty}
+                            </span>
+                          ) : "-"}
+                        </td>
+                        <td className="py-2 text-right text-xs font-semibold">
+                          {r.concentration_level != null ? (
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 ${concentrationBadgeClass[r.concentration_level] ?? "bg-slate-100 text-slate-600"}`}
+                            >
+                              {r.concentration_level}/5
+                            </span>
+                          ) : "-"}
+                        </td>
+                        <td className="py-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <StudyLogForm
+                              subjects={subjectOptions}
+                              triggerLabel="수정"
+                              log={{
+                                id: r.id,
+                                subjectId: r.subject_id,
+                                studyDate: r.study_date,
+                                durationMinutes: r.duration_minutes,
+                                difficulty: r.difficulty,
+                                concentrationLevel: r.concentration_level,
+                                content: r.content,
+                              }}
+                            />
+                            <StudyLogDeleteButton logId={r.id} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
             {pendingStudyTasks.length > 0 && (
               <div className="mt-4 border-t pt-4">
@@ -411,12 +437,16 @@ export default async function AnalyticsPage() {
                   <p className="text-xs font-semibold text-muted-foreground">진행 중 할 일</p>
                   <StudyTaskForm subjects={subjectOptions} />
                 </div>
-                <div className="space-y-2">
+                <div className="h-[240px] space-y-2 overflow-y-auto pr-1">
                   {pendingStudyTasks.map((task, i) => (
                     <div key={i} className="flex items-center justify-between gap-3 text-xs">
                       <div className="min-w-0">
                         <p className="truncate">
-                          {task.subject ? `${task.subject} · ` : ""}
+                          <span
+                            className={`mr-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${subjectBadgeClass(task.subject)}`}
+                          >
+                            {task.subject}
+                          </span>
                           {task.title}
                         </p>
                         <p className="text-muted-foreground">
@@ -448,6 +478,31 @@ export default async function AnalyticsPage() {
               <div className="mt-4 border-t pt-4 flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">진행 중인 공부 할 일이 없습니다.</p>
                 <StudyTaskForm subjects={subjectOptions} />
+              </div>
+            )}
+            {completedStudyTasks.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="mb-2 text-xs font-semibold text-muted-foreground">최근 완료한 할 일</p>
+                <div className="space-y-2">
+                  {completedStudyTasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between gap-3 text-xs opacity-80">
+                      <div className="min-w-0">
+                        <p className="truncate line-through">
+                          <span
+                            className={`mr-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold no-underline ${subjectBadgeClass(task.subject)}`}
+                          >
+                            {task.subject}
+                          </span>
+                          {task.title}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {task.priority ? priorityLabels[task.priority] ?? task.priority : "우선순위 없음"}
+                        </p>
+                      </div>
+                      <StudyTaskActions taskId={task.id} isCompleted={task.is_completed} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

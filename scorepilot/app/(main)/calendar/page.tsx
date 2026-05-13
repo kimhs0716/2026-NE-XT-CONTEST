@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import CalendarView, { type ScheduleEvent } from "@/components/calendar/CalendarView";
 
 type ScheduleRow = {
@@ -14,6 +15,7 @@ type ScheduleRow = {
 export default async function CalendarPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   const [{ data: scheduleRows }, { data: subjectRows }] = await Promise.all([
     supabase
@@ -22,12 +24,12 @@ export default async function CalendarPage() {
         id, title, event_type, start_date, is_completed, description,
         subjects ( name )
       `)
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("start_date", { ascending: true }),
     supabase
       .from("subjects")
       .select("name")
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("name"),
   ]);
 

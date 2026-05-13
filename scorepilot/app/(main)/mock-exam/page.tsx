@@ -5,11 +5,12 @@ import MockExamView, { type MockExamRecord } from "@/components/mock-exam/MockEx
 export default async function MockExamPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   const { data: profileData } = await supabase
     .from("profiles")
     .select("school_level")
-    .eq("id", user!.id)
+    .eq("id", user.id)
     .single();
 
   if (profileData?.school_level !== "high") {
@@ -19,7 +20,7 @@ export default async function MockExamPage() {
   const { data: records } = await supabase
     .from("mock_exam_records")
     .select("id, exam_year, exam_month, subject, raw_score, percentile, grade, target_score")
-    .eq("user_id", user!.id)
+    .eq("user_id", user.id)
     .order("exam_year", { ascending: false })
     .order("exam_month", { ascending: false });
 

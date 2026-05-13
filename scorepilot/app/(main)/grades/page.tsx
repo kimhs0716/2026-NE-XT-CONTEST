@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
 import GradeForm from "@/components/grades/GradeForm";
 
@@ -21,6 +22,7 @@ type SubjectSummary = {
 export default async function GradesPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   const [{ data: rows }, { data: subjectRows }] = await Promise.all([
     supabase
@@ -32,12 +34,12 @@ export default async function GradesPage() {
         subjects ( name ),
         grade_records ( score, max_score, percentage, memo )
       `)
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("subjects")
       .select("name")
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .order("name"),
   ]);
 

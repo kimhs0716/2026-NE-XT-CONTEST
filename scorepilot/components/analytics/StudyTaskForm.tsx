@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useEffect, useState, startTransition } from "react";
+import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addStudyTask, updateStudyTask } from "@/lib/actions/study";
+import { commonSubjects } from "@/lib/constants/grades";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,9 +47,20 @@ export default function StudyTaskForm({
   const [state, action, pending] = useActionState(task ? updateStudyTask : addStudyTask, null);
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const defaultSubjectId =
-    subjects.find((subject) => subject.name === defaultSubjectName)?.id ?? subjects[0]?.id ?? "";
-  const [subjectId, setSubjectId] = useState(task?.subjectId ?? defaultSubjectId);
+  const handledSuccessRef = useRef(false);
+  const subjectByName = new Map(subjects.map((subject) => [subject.name, subject]));
+  const subjectNameById = new Map(subjects.map((subject) => [subject.id, subject.name]));
+  const initialSubjectName = task?.subjectId
+    ? subjectNameById.get(task.subjectId) ?? ""
+    : defaultSubjectName ?? commonSubjects[0];
+  const initialSubjectMode = commonSubjects.includes(initialSubjectName) ? "select" : "custom";
+  const [selectedSubjectName, setSelectedSubjectName] = useState(
+    initialSubjectMode === "select" ? initialSubjectName : commonSubjects[0],
+  );
+  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(initialSubjectMode);
+  const [customSubject, setCustomSubject] = useState(
+    initialSubjectMode === "custom" ? initialSubjectName : "",
+  );
   const [title, setTitle] = useState(task?.title ?? "");
   const [taskType, setTaskType] = useState(task?.taskType ?? "review");
   const [dueDate, setDueDate] = useState(task?.dueDate ?? "");
@@ -56,19 +68,26 @@ export default function StudyTaskForm({
   const [memo, setMemo] = useState(task?.memo ?? "");
 
   useEffect(() => {
-    if (state?.success) {
-      setOpen(false);
-      if (!task) {
-        setSubjectId(defaultSubjectId);
-        setTitle("");
-        setTaskType("review");
-        setDueDate("");
-        setPriority("medium");
-        setMemo("");
-      }
-      router.refresh();
+    if (!state?.success) {
+      handledSuccessRef.current = false;
+      return;
     }
-  }, [state, defaultSubjectId, task, router]);
+    if (handledSuccessRef.current) return;
+
+    handledSuccessRef.current = true;
+    setOpen(false);
+    if (!task) {
+      setSelectedSubjectName(commonSubjects[0]);
+      setSubjectMode("select");
+      setCustomSubject("");
+      setTitle("");
+      setTaskType("review");
+      setDueDate("");
+      setPriority("medium");
+      setMemo("");
+    }
+    router.refresh();
+  }, [state, task, router]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -80,26 +99,52 @@ export default function StudyTaskForm({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            handledSuccessRef.current = false;
             startTransition(() => action(new FormData(e.currentTarget)));
           }}
           className="space-y-4 mt-2"
         >
           {task && <input type="hidden" name="study_task_id" value={task.id} />}
+          <input
+            type="hidden"
+            name="subject_id"
+            value={subjectMode === "select" ? subjectByName.get(selectedSubjectName)?.id ?? "" : ""}
+          />
+          <input
+            type="hidden"
+            name="subject_name"
+            value={subjectMode === "select" ? selectedSubjectName : customSubject.trim()}
+          />
           <div className="space-y-2">
             <Label>과목</Label>
             <select
-              name="subject_id"
-              value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
+              value={subjectMode === "custom" ? "" : selectedSubjectName}
+              onChange={(e) => {
+                if (!e.target.value) {
+                  setSubjectMode("custom");
+                  setCustomSubject("");
+                  return;
+                }
+                setSubjectMode("select");
+                setSelectedSubjectName(e.target.value);
+                setCustomSubject("");
+              }}
               className={selectClass}
             >
-              <option value="">과목 없음</option>
-              {subjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name}
+              {commonSubjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject}
                 </option>
               ))}
+              <option value="">기타(직접 입력)</option>
             </select>
+            {subjectMode === "custom" ? (
+              <Input
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+                placeholder="예: 기가, 정보, 한문"
+              />
+            ) : null}
           </div>
 
           <div className="space-y-2">

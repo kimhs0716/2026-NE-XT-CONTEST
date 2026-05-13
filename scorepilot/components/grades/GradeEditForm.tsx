@@ -6,6 +6,7 @@ import {
   examTypeLabels,
   examTypeGroups,
   commonSubjects,
+  sortSubjectsByPreferredOrder,
   semesterTypeLabels,
   type ExamType,
   type SemesterType,
@@ -39,7 +40,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
   const [state, action, pending] = useActionState(updateGrade, null);
   const [open, setOpen] = useState(false);
 
-  const subjectOptions = [...new Set([...commonSubjects, ...subjects])];
+  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
   const isKnown = subjectOptions.includes(grade.subject);
 
   const [subjectMode, setSubjectMode] = useState<"select" | "custom">(
@@ -89,7 +90,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
               {subjectOptions.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-              <option value="__custom__">직접 입력...</option>
+              <option value="__custom__">기타(직접 입력)</option>
             </select>
             {subjectMode === "custom" && (
               <Input

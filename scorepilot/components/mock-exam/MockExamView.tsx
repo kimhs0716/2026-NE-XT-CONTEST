@@ -12,6 +12,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 export type MockExamRecord = {
   id: string;
@@ -151,6 +160,7 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(MONTHS.find((m) => m <= now.getMonth() + 1) ?? MONTHS[0]);
+  const [trendSubject, setTrendSubject] = useState(SUBJECTS[0]);
   const [editTarget, setEditTarget] = useState<{ record: MockExamRecord | null } | null>(null);
   const [isPending, startTrans] = useTransition();
 
@@ -159,6 +169,44 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
   );
 
   const recordMap = new Map(filtered.map((r) => [r.subject, r]));
+  const scoredRecords = filtered.filter((r) => r.grade != null || r.raw_score != null || r.percentile != null);
+  const avgGrade =
+    scoredRecords.filter((r) => r.grade != null).length > 0
+      ? Math.round(
+          (scoredRecords
+            .filter((r): r is MockExamRecord & { grade: number } => r.grade != null)
+            .reduce((sum, r) => sum + r.grade, 0) /
+            scoredRecords.filter((r) => r.grade != null).length) *
+            10,
+        ) / 10
+      : null;
+  const bestRecord = scoredRecords
+    .filter((r) => r.grade != null)
+    .sort((a, b) => (a.grade ?? 10) - (b.grade ?? 10))[0];
+  const targetGapRecords = scoredRecords.filter((r) => r.raw_score != null && r.target_score != null);
+  const avgTargetGap =
+    targetGapRecords.length > 0
+      ? Math.round(
+          (targetGapRecords.reduce((sum, r) => sum + ((r.raw_score ?? 0) - (r.target_score ?? 0)), 0) /
+            targetGapRecords.length) *
+            10,
+        ) / 10
+      : null;
+  const trendData = records
+    .filter((r) => r.subject === trendSubject)
+    .sort((a, b) => a.exam_year * 100 + a.exam_month - (b.exam_year * 100 + b.exam_month))
+    .map((r) => ({
+      label: `${String(r.exam_year).slice(2)}.${r.exam_month}`,
+      rawScore: r.raw_score,
+      percentile: r.percentile,
+      grade: r.grade,
+    }));
+  const latestTrend = trendData[trendData.length - 1];
+  const previousTrend = trendData[trendData.length - 2];
+  const gradeDelta =
+    latestTrend?.grade != null && previousTrend?.grade != null
+      ? previousTrend.grade - latestTrend.grade
+      : null;
 
   const yearOptions: number[] = [];
   const minYear = Math.min(...records.map((r) => r.exam_year), now.getFullYear() - 2);
@@ -209,6 +257,77 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
               grade={recordMap.get(subject)?.grade ?? null}
             />
           ))}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-xl border bg-white p-5">
+          <p className="text-xs text-muted-foreground mb-1">평균 등급</p>
+          <p className="text-2xl font-bold">{avgGrade != null ? `${avgGrade}등급` : "-"}</p>
+          <p className="text-xs text-muted-foreground mt-2">{selectedYear}년 {selectedMonth}월 기준</p>
+        </div>
+        <div className="rounded-xl border bg-white p-5">
+          <p className="text-xs text-muted-foreground mb-1">가장 좋은 과목</p>
+          <p className="text-2xl font-bold">{bestRecord ? bestRecord.subject : "-"}</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {bestRecord?.grade != null ? `${bestRecord.grade}등급` : "성적을 입력하면 표시됩니다"}
+          </p>
+        </div>
+        <div className="rounded-xl border bg-white p-5">
+          <p className="text-xs text-muted-foreground mb-1">목표 대비 평균</p>
+          <p className={`text-2xl font-bold ${avgTargetGap != null && avgTargetGap >= 0 ? "text-green-600" : "text-yellow-600"}`}>
+            {avgTargetGap == null ? "-" : avgTargetGap > 0 ? `+${avgTargetGap}점` : avgTargetGap === 0 ? "목표 달성" : `${avgTargetGap}점`}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {avgTargetGap == null
+              ? "목표점수를 입력하면 표시됩니다"
+              : avgTargetGap >= 0
+                ? "목표를 넘긴 과목이 있습니다"
+                : `평균 ${Math.abs(avgTargetGap)}점 보강 필요`}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-white p-6">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">모의고사 추이</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              등급은 숫자가 낮을수록 좋은 성적입니다.
+            </p>
+          </div>
+          <select
+            value={trendSubject}
+            onChange={(e) => setTrendSubject(e.target.value)}
+            className={selectClass}
+          >
+            {SUBJECTS.map((subject) => (
+              <option key={subject} value={subject}>{subject}</option>
+            ))}
+          </select>
+        </div>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={trendData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+              <YAxis yAxisId="score" domain={[0, 100]} tick={{ fontSize: 12 }} width={40} />
+              <YAxis yAxisId="grade" orientation="right" domain={[1, 9]} tick={{ fontSize: 12 }} width={36} />
+              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+              <Line yAxisId="score" type="monotone" dataKey="rawScore" name="원점수" stroke="#2563eb" strokeWidth={2} connectNulls />
+              <Line yAxisId="score" type="monotone" dataKey="percentile" name="백분위" stroke="#16a34a" strokeWidth={2} connectNulls />
+              <Line yAxisId="grade" type="monotone" dataKey="grade" name="등급" stroke="#d97706" strokeWidth={2} connectNulls />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-4 rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          {gradeDelta == null
+            ? `${trendSubject} 기록이 더 쌓이면 최근 등급 변화를 보여드립니다.`
+            : gradeDelta > 0
+              ? `${trendSubject} 등급이 직전 시험보다 ${gradeDelta}등급 좋아졌습니다.`
+              : gradeDelta < 0
+                ? `${trendSubject} 등급이 직전 시험보다 ${Math.abs(gradeDelta)}등급 내려갔습니다.`
+                : `${trendSubject} 등급이 직전 시험과 같습니다.`}
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
 import { type SemesterType } from "@/lib/constants/grades";
 import { computeMetrics } from "@/lib/analytics/metrics";
 import { computeRisk } from "@/lib/analytics/risk";
@@ -9,7 +10,7 @@ import { computePrediction } from "@/lib/analytics/prediction";
 import { buildInsight } from "@/lib/analytics/insight-data";
 import { buildFeedbackPrompt, type StudyFeedbackContext } from "@/lib/ai/prompt";
 import { generateFeedbackWithFallback } from "@/lib/ai/generate-feedback";
-import type { GradePoint } from "@/lib/analytics/types";
+import type { GradePoint, SubjectInsight } from "@/lib/analytics/types";
 
 export type AiFeedbackResponse = {
   feedback?: string;
@@ -18,6 +19,16 @@ export type AiFeedbackResponse = {
   error?: string;
 };
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+function daysUntil(dateStr: string): number {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const target = Date.UTC(year, month - 1, day);
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((target - today) / MS_PER_DAY);
+}
+
 export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
   const supabase = await createClient();
   const {
@@ -25,7 +36,15 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
-  const [{ data: rows }, { data: studyLogs }, { data: studyTasks }] = await Promise.all([
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [
+    { data: rows },
+    { data: studyLogs },
+    { data: studyTasks },
+    { data: goals },
+    { data: schedules },
+  ] = await Promise.all([
     supabase
       .from("exams")
       .select(
@@ -44,6 +63,17 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       .eq("user_id", user.id)
       .eq("is_completed", false)
       .limit(30),
+    supabase
+      .from("subject_goals")
+      .select("target_score, subjects ( id, name )")
+      .eq("user_id", user.id),
+    supabase
+      .from("schedules")
+      .select("start_date, is_completed, subjects ( id, name )")
+      .eq("user_id", user.id)
+      .eq("is_completed", false)
+      .gte("start_date", today)
+      .limit(40),
   ]);
 
   if (!rows?.length) return { error: "성적 데이터가 없습니다." };
@@ -66,7 +96,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
   }
 
   // 자체 수치 로직으로 분석 + 예측 (LLM 없이도 완성)
-  const insights = [];
+  const insights: SubjectInsight[] = [];
   for (const { name, grades } of subjectMap.values()) {
     const metrics = computeMetrics(name, grades);
     const risk = computeRisk(metrics);
@@ -90,6 +120,9 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       pendingTaskCount: number;
       highPriorityTaskCount: number;
       recentContents: string[];
+      targetScore: number | null;
+      upcomingScheduleCount: number;
+      nearestScheduleDays: number | null;
     }
   >();
 
@@ -105,6 +138,9 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
         pendingTaskCount: 0,
         highPriorityTaskCount: 0,
         recentContents: [],
+        targetScore: null,
+        upcomingScheduleCount: 0,
+        nearestScheduleDays: null,
       });
     }
     return studyMap.get(subjectId)!;
@@ -144,12 +180,42 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     if (r.priority === "high") entry.highPriorityTaskCount += 1;
   }
 
+  for (const r of (goals ?? []) as {
+    target_score: number | null;
+    subjects: { id: string; name: string } | { id: string; name: string }[] | null;
+  }[]) {
+    const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    if (!sub || r.target_score == null) continue;
+    ensureStudyEntry(sub.id, sub.name).targetScore = Number(r.target_score);
+  }
+
+  for (const r of (schedules ?? []) as {
+    start_date: string;
+    is_completed: boolean;
+    subjects: { id: string; name: string } | { id: string; name: string }[] | null;
+  }[]) {
+    const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    if (!sub) continue;
+    const daysLeft = daysUntil(r.start_date);
+    if (daysLeft < 0 || daysLeft > 21) continue;
+    const entry = ensureStudyEntry(sub.id, sub.name);
+    entry.upcomingScheduleCount += 1;
+    if (entry.nearestScheduleDays === null || daysLeft < entry.nearestScheduleDays) {
+      entry.nearestScheduleDays = daysLeft;
+    }
+  }
+
   for (const [subjectId, { name }] of subjectMap.entries()) {
     ensureStudyEntry(subjectId, name);
   }
 
   const studyContexts: StudyFeedbackContext[] = [...studyMap.values()].map((entry) => ({
     subject: entry.subject,
+    targetScore: entry.targetScore,
+    targetGap:
+      entry.targetScore == null
+        ? null
+        : Math.round(((insights.find((insight) => insight.subject === entry.subject)?.latestScore ?? 0) - entry.targetScore) * 10) / 10,
     logCount: entry.logCount,
     totalMinutes: entry.totalMinutes,
     averageConcentration:
@@ -159,12 +225,29 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     hardLogCount: entry.hardLogCount,
     pendingTaskCount: entry.pendingTaskCount,
     highPriorityTaskCount: entry.highPriorityTaskCount,
+    upcomingScheduleCount: entry.upcomingScheduleCount,
+    nearestScheduleDays: entry.nearestScheduleDays,
     recentContents: entry.recentContents,
   }));
 
-  // LLM은 문장 생성 보조 역할 — 실패해도 fallback 반환
   const prompt = buildFeedbackPrompt(insights, studyContexts);
   const result = await generateFeedbackWithFallback(prompt, insights, studyContexts);
+
+  await supabase.from("analysis_reports").insert({
+    user_id: user.id,
+    report_type: "overall",
+    title: "AI 학습 피드백",
+    summary: result.text,
+    average_score:
+      insights.length > 0
+        ? Math.round(
+            (insights.reduce((sum, insight) => sum + insight.average, 0) / insights.length) * 10,
+          ) / 10
+        : null,
+    trend: "unknown",
+  });
+
+  revalidatePath("/analytics");
 
   return {
     feedback: result.text,

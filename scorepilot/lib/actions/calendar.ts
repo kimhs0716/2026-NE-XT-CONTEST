@@ -2,22 +2,68 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { formatSemester, type SemesterType } from "@/lib/constants/grades";
 
-async function findSubjectId(
+function revalidateCalendarViews() {
+  revalidatePath("/calendar");
+  revalidatePath("/dashboard");
+  revalidatePath("/strategy");
+}
+
+async function findOrCreateSubjectId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   name: string,
 ): Promise<string | null> {
-  if (!name) return null;
-  // subjects는 이제 semester_id가 필수이므로, 이름이 일치하는 기존 과목만 연결
-  const { data } = await supabase
+  const subjectName = name.trim() || "기타";
+  const { data: existingSubject } = await supabase
     .from("subjects")
     .select("id")
     .eq("user_id", userId)
-    .eq("name", name)
+    .eq("name", subjectName)
     .limit(1)
+    .maybeSingle();
+
+  if (existingSubject?.id) return existingSubject.id;
+
+  const now = new Date();
+  const semesterYear = now.getFullYear();
+  const semesterType: SemesterType =
+    now.getMonth() + 1 >= 3 && now.getMonth() + 1 <= 8 ? "semester_1" : "semester_2";
+
+  const { data: existingSemester } = await supabase
+    .from("semesters")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("year", semesterYear)
+    .eq("semester_type", semesterType)
+    .maybeSingle();
+
+  let semesterId = existingSemester?.id as string | undefined;
+  if (!semesterId) {
+    const { data: newSemester, error: semesterError } = await supabase
+      .from("semesters")
+      .insert({
+        user_id: userId,
+        year: semesterYear,
+        semester_type: semesterType,
+        name: formatSemester(semesterYear, semesterType),
+      })
+      .select("id")
+      .single();
+
+    if (semesterError) return null;
+    semesterId = newSemester.id;
+  }
+
+  const { data: newSubject, error: subjectError } = await supabase
+    .from("subjects")
+    .insert({ user_id: userId, semester_id: semesterId, name: subjectName })
+    .select("id")
     .single();
-  return data?.id ?? null;
+
+  if (subjectError) return null;
+  return newSubject.id;
 }
 
 export async function addSchedule(_: unknown, formData: FormData) {
@@ -34,7 +80,7 @@ export async function addSchedule(_: unknown, formData: FormData) {
   if (!title) return { error: "제목을 입력해주세요." };
   if (!startDate) return { error: "날짜를 입력해주세요." };
 
-  const subjectId = await findSubjectId(supabase, user.id, subjectName);
+  const subjectId = await findOrCreateSubjectId(supabase, user.id, subjectName);
 
   const { error } = await supabase.from("schedules").insert({
     user_id: user.id,
@@ -47,7 +93,7 @@ export async function addSchedule(_: unknown, formData: FormData) {
 
   if (error) return { error: "일정 저장 중 오류가 발생했습니다." };
 
-  revalidatePath("/calendar");
+  revalidateCalendarViews();
   return { success: true };
 }
 
@@ -66,7 +112,7 @@ export async function updateSchedule(_: unknown, formData: FormData) {
   if (!title) return { error: "제목을 입력해주세요." };
   if (!startDate) return { error: "날짜를 입력해주세요." };
 
-  const subjectId = await findSubjectId(supabase, user.id, subjectName);
+  const subjectId = await findOrCreateSubjectId(supabase, user.id, subjectName);
 
   const { error } = await supabase
     .from("schedules")
@@ -76,7 +122,7 @@ export async function updateSchedule(_: unknown, formData: FormData) {
 
   if (error) return { error: "수정 중 오류가 발생했습니다." };
 
-  revalidatePath("/calendar");
+  revalidateCalendarViews();
   return { success: true };
 }
 
@@ -93,7 +139,7 @@ export async function deleteSchedule(scheduleId: string) {
 
   if (error) return { error: "삭제 중 오류가 발생했습니다." };
 
-  revalidatePath("/calendar");
+  revalidateCalendarViews();
   return { success: true };
 }
 
@@ -110,6 +156,6 @@ export async function toggleScheduleComplete(scheduleId: string, isCompleted: bo
 
   if (error) return { error: "업데이트 중 오류가 발생했습니다." };
 
-  revalidatePath("/calendar");
+  revalidateCalendarViews();
   return { success: true };
 }

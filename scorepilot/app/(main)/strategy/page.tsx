@@ -7,9 +7,10 @@ import { computeStrategy } from "@/lib/analytics/strategy";
 import { computePrediction } from "@/lib/analytics/prediction";
 import type { GradePoint, RiskLevel } from "@/lib/analytics/types";
 import { cn } from "@/lib/utils";
+import RecommendationTaskButton from "@/components/strategy/RecommendationTaskButton";
 
 type ExamRow = {
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { id: string; name: string } | { id: string; name: string }[] | null;
   semesters:
     | { year: number; semester_type: string }
     | { year: number; semester_type: string }[]
@@ -362,7 +363,7 @@ function buildWeeklyPlanItem(signal: SubjectPlanSignal, mode: PlanMode, rank: nu
       : null,
   ].filter((part): part is string => Boolean(part));
 
-  const reason = signal.reasons.join(" · ") || signal.riskReason || "분석 근거 없음";
+  const reason = signal.reasons.join(" · ") || signal.riskReason || "기록이 더 쌓이면 이유를 보여드릴게요";
 
   return {
     title,
@@ -419,7 +420,7 @@ function buildSubjectPlanSignals(params: {
   }
 
   for (const log of studyLogs) {
-    const subject = extractSubjectName(log.subjects) ?? "공통";
+    const subject = extractSubjectName(log.subjects) ?? "기타";
     const bucket = ensureBucket(subject);
     const recentDays = daysSince(log.study_date);
     const duration = log.duration_minutes ?? 0;
@@ -438,7 +439,7 @@ function buildSubjectPlanSignals(params: {
     const daysLeft = daysUntil(schedule.start_date);
     if (daysLeft < 0 || daysLeft > 14) continue;
 
-    const subject = extractSubjectName(schedule.subjects) ?? "공통";
+    const subject = extractSubjectName(schedule.subjects) ?? "기타";
     const bucket = ensureBucket(subject);
     if (bucket.examDaysLeft === null || daysLeft < bucket.examDaysLeft) {
       bucket.examDaysLeft = daysLeft;
@@ -451,7 +452,7 @@ function buildSubjectPlanSignals(params: {
     const daysLeft = daysUntil(task.due_date);
     if (daysLeft < 0 || daysLeft > 7) continue;
 
-    const subject = extractSubjectName(task.subjects) ?? "공통";
+    const subject = extractSubjectName(task.subjects) ?? "기타";
     const bucket = ensureBucket(subject);
     if (bucket.taskDaysLeft === null || daysLeft < bucket.taskDaysLeft) {
       bucket.taskDaysLeft = daysLeft;
@@ -571,7 +572,7 @@ export default async function StrategyPage() {
     supabase
       .from("exams")
       .select(`
-        subjects ( name ),
+        subjects ( id, name ),
         semesters!exam_semester ( year, semester_type ),
         grade_records ( percentage )
       `)
@@ -623,6 +624,13 @@ export default async function StrategyPage() {
   const studyLogs = (studyLogRows ?? []) as StudyLogRow[];
   const studyTasks = (studyTaskRows ?? []) as StudyTaskRow[];
   const schedules = (scheduleRows ?? []) as ScheduleRow[];
+  const subjectIdByName = new Map<string, string>();
+  for (const row of (rows ?? []) as ExamRow[]) {
+    const subjectRow = Array.isArray(row.subjects) ? row.subjects[0] : row.subjects;
+    if (subjectRow?.name && subjectRow.id && !subjectIdByName.has(subjectRow.name)) {
+      subjectIdByName.set(subjectRow.name, subjectRow.id);
+    }
+  }
 
   const upcomingExamCount = schedules.filter(isUpcomingExamSchedule).filter((schedule) => {
     const daysLeft = daysUntil(schedule.start_date);
@@ -760,7 +768,7 @@ export default async function StrategyPage() {
                       </div>
                       {(item.basis || item.riskReason) && (
                         <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-muted-foreground border">
-                          {item.riskReason || "분석 근거 없음"}{item.basis ? ` · ${item.basis}` : ""}
+                          {item.riskReason || "아직 판단할 기록이 부족합니다"}{item.basis ? ` · ${item.basis}` : ""}
                         </div>
                       )}
                     </div>
@@ -814,6 +822,14 @@ export default async function StrategyPage() {
                     </div>
                     <p className="mt-3 text-sm font-medium text-foreground">{step.action}</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">{step.reason}</p>
+                    <div className="mt-3">
+                      <RecommendationTaskButton
+                        subjectId={subjectIdByName.get(step.subject) ?? null}
+                        title={step.title}
+                        description={step.action}
+                        priority={step.priority === "highest" ? "high" : step.priority === "maintenance" ? "low" : "medium"}
+                      />
+                    </div>
                   </div>
                 ))}
                 {weeklyPlan.length === 0 && (
@@ -853,7 +869,7 @@ export default async function StrategyPage() {
                 <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5">
                   <p className="font-medium text-emerald-700 mb-1">시험·과제 신호</p>
                   <p className="text-emerald-600 text-xs">
-                    14일 이내 시험과 7일 이내 과제를 같이 보며, D-3 / D-2는 강제로 더 높게 반영합니다.
+                    14일 이내 시험과 7일 이내 과제를 같이 보며, 3일 이내의 일정은 더 높은 우선순위를 부여합니다.
                   </p>
                 </div>
                 {lowData.length > 0 && (
