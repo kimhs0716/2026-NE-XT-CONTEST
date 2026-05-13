@@ -76,6 +76,35 @@ const difficultyLabels: Record<string, string> = {
   hard: "어려움",
 };
 
+const subjectBadgePalettes = [
+  "bg-blue-100 text-blue-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-orange-100 text-orange-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-indigo-100 text-indigo-700",
+];
+
+const difficultyBadgeClass: Record<string, string> = {
+  easy: "bg-emerald-100 text-emerald-700",
+  normal: "bg-amber-100 text-amber-700",
+  hard: "bg-rose-100 text-rose-700",
+};
+
+const concentrationBadgeClass: Record<number, string> = {
+  1: "bg-rose-100 text-rose-700",
+  2: "bg-orange-100 text-orange-700",
+  3: "bg-amber-100 text-amber-700",
+  4: "bg-lime-100 text-lime-700",
+  5: "bg-emerald-100 text-emerald-700",
+};
+
+function subjectBadgeClass(subject: string): string {
+  if (subject === "-") return "bg-slate-100 text-slate-600";
+  const hash = [...subject].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return subjectBadgePalettes[hash % subjectBadgePalettes.length];
+}
+
 const priorityLabels: Record<string, string> = {
   low: "낮음",
   medium: "보통",
@@ -325,15 +354,33 @@ export default async function AnalyticsPage() {
                       <td className="py-2 text-muted-foreground text-xs whitespace-nowrap">
                         {formatStudyDate(r.study_date)}
                       </td>
-                      <td className="py-2 font-medium">{r.subject}</td>
+                      <td className="py-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${subjectBadgeClass(r.subject)}`}
+                        >
+                          {r.subject}
+                        </span>
+                      </td>
                       <td className="py-2 text-right text-xs">
                         {formatDuration(r.duration_minutes)}
                       </td>
                       <td className="py-2 text-right text-xs">
-                        {r.difficulty ? difficultyLabels[r.difficulty] ?? r.difficulty : "-"}
+                        {r.difficulty ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 font-semibold ${difficultyBadgeClass[r.difficulty] ?? "bg-slate-100 text-slate-600"}`}
+                          >
+                            {difficultyLabels[r.difficulty] ?? r.difficulty}
+                          </span>
+                        ) : "-"}
                       </td>
                       <td className="py-2 text-right text-xs font-semibold">
-                        {r.concentration_level != null ? `${r.concentration_level}/5` : "-"}
+                        {r.concentration_level != null ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 ${concentrationBadgeClass[r.concentration_level] ?? "bg-slate-100 text-slate-600"}`}
+                          >
+                            {r.concentration_level}/5
+                          </span>
+                        ) : "-"}
                       </td>
                       <td className="py-2">
                         <div className="flex items-center justify-end gap-1">
