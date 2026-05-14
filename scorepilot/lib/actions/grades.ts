@@ -26,6 +26,7 @@ export async function addGrade(_: unknown, formData: FormData) {
     if (!user) return { error: "로그인이 필요합니다." };
 
     const subjectName = (formData.get("subject_name") as string | null)?.trim() ?? "";
+    const category = (formData.get("category") as string | null)?.trim() || null;
     const examType = formData.get("exam_type") as ExamType;
     const semesterYear = parseInt(formData.get("semester_year") as string, 10);
     const semesterType = formData.get("semester_type") as SemesterType;
@@ -72,10 +73,13 @@ export async function addGrade(_: unknown, formData: FormData) {
     let subjectId: string;
     if (existingSub) {
       subjectId = existingSub.id;
+      if (category) {
+        await supabase.from("subjects").update({ category }).eq("id", subjectId).eq("user_id", user.id);
+      }
     } else {
       const { data: newSub, error: subError } = await supabase
         .from("subjects")
-        .insert({ user_id: user.id, semester_id: semesterId, name: subjectName })
+        .insert({ user_id: user.id, semester_id: semesterId, name: subjectName, category })
         .select("id")
         .single();
       if (subError) return { error: "과목 생성 중 오류가 발생했습니다." };
@@ -135,6 +139,7 @@ export async function updateGrade(_: unknown, formData: FormData) {
 
     const examId = formData.get("exam_id") as string;
     const subjectName = (formData.get("subject_name") as string | null)?.trim() ?? "";
+    const category = (formData.get("category") as string | null)?.trim() || null;
     const examType = formData.get("exam_type") as ExamType;
     const semesterYear = parseInt(formData.get("semester_year") as string, 10);
     const semesterType = formData.get("semester_type") as SemesterType;
@@ -179,10 +184,13 @@ export async function updateGrade(_: unknown, formData: FormData) {
     let subjectId: string;
     if (existingSub) {
       subjectId = existingSub.id;
+      if (category) {
+        await supabase.from("subjects").update({ category }).eq("id", subjectId).eq("user_id", user.id);
+      }
     } else {
       const { data: newSub, error: subError } = await supabase
         .from("subjects")
-        .insert({ user_id: user.id, semester_id: semesterId, name: subjectName })
+        .insert({ user_id: user.id, semester_id: semesterId, name: subjectName, category })
         .select("id")
         .single();
       if (subError) return { error: `과목 생성 오류: ${subError.message}` };

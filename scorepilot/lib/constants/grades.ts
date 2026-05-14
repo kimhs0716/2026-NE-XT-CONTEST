@@ -34,6 +34,13 @@ export const examTypeGroups = [
   },
 ];
 
+export const subjectCategories = [
+  "국어", "수학", "영어", "사회", "과학",
+  "한국사", "역사", "체육", "음악", "미술", "도덕",
+];
+
+export const categoryOrder = subjectCategories;
+
 export const preferredSubjectOrder = ["국어", "수학", "영어", "사회", "과학"];
 
 export const commonSubjects = [...preferredSubjectOrder];

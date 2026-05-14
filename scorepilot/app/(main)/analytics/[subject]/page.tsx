@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { formatSemester, type SemesterType, type ExamType } from "@/lib/constants/grades";
+import { categoryOrder, formatSemester, type SemesterType, type ExamType } from "@/lib/constants/grades";
 import GradeChart from "@/components/analytics/GradeChart";
 import AnalysisModeSelect from "@/components/analytics/AnalysisModeSelect";
 import StudyLogForm from "@/components/analytics/StudyLogForm";
@@ -39,7 +39,7 @@ type StudyLogRow = {
   difficulty: string | null;
   concentration_level: number | null;
   content: string | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
 };
 
 type StudyTaskRow = {
@@ -51,12 +51,13 @@ type StudyTaskRow = {
   priority: string | null;
   is_completed: boolean;
   memo: string | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
 };
 
 type SubjectRow = {
   id: string;
   name: string;
+  category: string | null;
 };
 
 function formatStudyDate(dateStr: string): string {
@@ -107,6 +108,22 @@ function subjectBadgeClass(subject: string): string {
   return subjectBadgePalettes[hash % subjectBadgePalettes.length];
 }
 
+function analysisName(subject: { name: string; category: string | null } | null | undefined): string | null {
+  if (!subject?.name) return null;
+  return subject.category || subject.name;
+}
+
+function sortAnalysisNames(names: string[]): string[] {
+  return [...names].sort((a, b) => {
+    const ia = categoryOrder.indexOf(a);
+    const ib = categoryOrder.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b, "ko");
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 const priorityLabels: Record<string, string> = {
   low: "낮음",
   medium: "보통",
@@ -125,7 +142,7 @@ export default async function SubjectAnalyticsPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // 해당 과목의 성적/학습 데이터 조회
+  // 해당 카테고리의 성적/학습 데이터 조회
   const [
     { data: rawRows },
     { data: studyLogRows },
@@ -136,26 +153,26 @@ export default async function SubjectAnalyticsPage({
       .from("exams")
       .select(`
         id, exam_type,
-        subjects ( name ),
+        subjects ( name, category ),
         semesters!exam_semester ( year, semester_type ),
         grade_records ( score, max_score, percentage )
       `)
       .eq("user_id", user.id),
     supabase
       .from("study_logs")
-      .select(`id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name )`)
+      .select(`id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name, category )`)
       .eq("user_id", user.id)
       .order("study_date", { ascending: false })
       .limit(20),
     supabase
       .from("study_tasks")
-      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name )`)
+      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name, category )`)
       .eq("user_id", user.id)
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(40),
     supabase
       .from("subjects")
-      .select("id, name")
+      .select("id, name, category")
       .eq("user_id", user.id)
       .order("name"),
   ]);
@@ -163,12 +180,13 @@ export default async function SubjectAnalyticsPage({
   const grades = ((rawRows ?? []) as {
     id: string;
     exam_type: string;
-    subjects: { name: string } | { name: string }[] | null;
+    subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
     semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
     grade_records: { score: number; max_score: number; percentage: number }[];
   }[]).flatMap((r) => {
-    const subName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-    if (subName !== subject) return [];
+    const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    const groupName = analysisName(sub);
+    if (groupName !== subject) return [];
     const grade = r.grade_records[0];
     if (!grade) return [];
     const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
@@ -190,18 +208,30 @@ export default async function SubjectAnalyticsPage({
   const subjectNames = [
     ...new Set(
       ((rawRows ?? []) as {
-        subjects: { name: string } | { name: string }[] | null;
+        subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
       }[])
-        .map((r) => (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name))
+        .map((r) => analysisName(Array.isArray(r.subjects) ? r.subjects[0] : r.subjects))
         .filter((name): name is string => Boolean(name)),
     ),
-  ].sort((a, b) => a.localeCompare(b, "ko"));
+  ];
+  const sortedSubjectNames = sortAnalysisNames(subjectNames);
   const subjectOptions = [...new Map(
     ((subjectRows ?? []) as SubjectRow[]).map((subject) => [subject.name, subject]),
   ).values()];
 
   // ── 분석 계산 ────────────────────────────────────────────────
-  const gradePoints: GradePoint[] = grades.map((g) => ({
+  const semesterSet = [...new Set(grades.map((g) => g.semester))];
+  const semesterAverages = semesterSet.map((sem) => {
+    const rows = grades.filter((g) => g.semester === sem);
+    const avg = Math.round((rows.reduce((sum, row) => sum + row.percentage, 0) / rows.length) * 10) / 10;
+    return {
+      semester: sem,
+      percentage: avg,
+      semOrder: rows[0]?.semOrder ?? 0,
+    };
+  });
+
+  const gradePoints: GradePoint[] = semesterAverages.map((g) => ({
     percentage: g.percentage,
     semOrder: g.semOrder,
   }));
@@ -211,27 +241,32 @@ export default async function SubjectAnalyticsPage({
   const strategy = computeStrategy(metrics, risk);
   const prediction = computePrediction(gradePoints);
 
-  // ── 차트 데이터 (이 과목만) ──────────────────────────────────
-  const semesterSet = [...new Set(grades.map((g) => g.semester))];
-  const chartData = semesterSet.map((sem) => {
-    const g = grades.find((r) => r.semester === sem);
-    return { semester: sem, [subject]: g?.percentage ?? null };
-  });
+  // ── 차트 데이터 (이 카테고리만) ───────────────────────────────
+  const chartData = semesterAverages.map((g) => ({
+    semester: g.semester,
+    [subject]: g.percentage,
+  }));
+
+  const defaultLogSubjectName = subjectOptions.some((option) => option.name === subject)
+    ? subject
+    : undefined;
 
   // ── 최근 공부 기록 ────────────────────────────────────────────
   const recentStudyLogs = ((studyLogRows ?? []) as StudyLogRow[])
     .flatMap((r) => {
-      const subjectName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-      if (subjectName !== subject) return [];
-      return [{ ...r, subject: subjectName }];
+      const subjectRow = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+      const groupName = analysisName(subjectRow);
+      if (groupName !== subject) return [];
+      return [{ ...r, subject: subjectRow?.name ?? subject }];
     })
     .slice(0, 10);
 
   const subjectStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[])
     .flatMap((r) => {
-      const subjectName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-      if (subjectName !== subject) return [];
-      return [{ ...r, subject: subjectName }];
+      const subjectRow = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+      const groupName = analysisName(subjectRow);
+      if (groupName !== subject) return [];
+      return [{ ...r, subject: subjectRow?.name ?? subject }];
     });
   const pendingStudyTasks = subjectStudyTasks.filter((task) => !task.is_completed);
   const completedStudyTasks = subjectStudyTasks.filter((task) => task.is_completed).slice(0, 8);
@@ -263,7 +298,7 @@ export default async function SubjectAnalyticsPage({
           <span className={cn("text-sm px-3 py-1 rounded-full font-medium", riskCfg.cls)}>
             {riskCfg.label}
           </span>
-          <AnalysisModeSelect subjects={subjectNames} currentSubject={subject} />
+          <AnalysisModeSelect subjects={sortedSubjectNames} currentSubject={subject} />
         </div>
       </div>
 
@@ -284,9 +319,9 @@ export default async function SubjectAnalyticsPage({
             <GradeChart data={chartData} subjects={[subject]} />
           </div>
 
-          {/* 과목 분석 */}
+          {/* 카테고리 분석 */}
           <div className="rounded-2xl border bg-white p-6 space-y-5">
-            <h2 className="text-base font-semibold">과목 분석</h2>
+            <h2 className="text-base font-semibold">카테고리 분석</h2>
 
             {/* 수치 그리드 */}
             <div className="grid grid-cols-3 gap-4 text-center">
@@ -361,11 +396,11 @@ export default async function SubjectAnalyticsPage({
           <div className="rounded-2xl border bg-white p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold">최근 공부 기록</h2>
-              <StudyLogForm subjects={subjectOptions} defaultSubjectName={subject} />
+              <StudyLogForm subjects={subjectOptions} defaultSubjectName={defaultLogSubjectName} />
             </div>
             {recentStudyLogs.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
-                이 과목의 공부 기록을 추가하면 여기에 표시됩니다.
+                이 카테고리의 공부 기록을 추가하면 여기에 표시됩니다.
               </p>
             ) : (
               <div className="h-[240px] overflow-y-auto pr-1">
@@ -418,7 +453,7 @@ export default async function SubjectAnalyticsPage({
                         <div className="flex items-center justify-end gap-1">
                           <StudyLogForm
                             subjects={subjectOptions}
-                            defaultSubjectName={subject}
+                            defaultSubjectName={defaultLogSubjectName}
                             triggerLabel="수정"
                             log={{
                               id: r.id,

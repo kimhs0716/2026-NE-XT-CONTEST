@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { formatSemester, type SemesterType } from "@/lib/constants/grades";
+import { categoryOrder, formatSemester, type SemesterType } from "@/lib/constants/grades";
 import GradeChart from "@/components/analytics/GradeChart";
 import PredictionSection from "@/components/analytics/PredictionSection";
 import SubjectAnalysisCard from "@/components/analytics/SubjectAnalysisCard";
@@ -17,7 +17,7 @@ import type { GradePoint, SubjectAnalysis } from "@/lib/analytics/types";
 
 type ExamRow = {
   exam_type: string;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
   semesters:
     | { year: number; semester_type: string }
     | { year: number; semester_type: string }[]
@@ -34,7 +34,7 @@ type StudyLogRow = {
   difficulty: string | null;
   concentration_level: number | null;
   content: string | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
 };
 
 type StudyTaskRow = {
@@ -46,12 +46,13 @@ type StudyTaskRow = {
   priority: string | null;
   is_completed: boolean;
   memo: string | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
 };
 
 type SubjectRow = {
   id: string;
   name: string;
+  category: string | null;
 };
 
 type AnalysisReportRow = {
@@ -131,15 +132,23 @@ function buildChartData(
   rows: { semester: string; semOrder: number; subject: string; percentage: number }[],
 ) {
   const subjects = [...new Set(rows.map((r) => r.subject))];
-  const bySem = new Map<string, { semOrder: number; scores: Record<string, number | null> }>();
+  const bySem = new Map<string, {
+    semOrder: number;
+    scores: Record<string, number | null>;
+    scoreSums: Record<string, { sum: number; count: number }>;
+  }>();
   for (const r of rows) {
     if (!bySem.has(r.semester)) {
       bySem.set(r.semester, {
         semOrder: r.semOrder,
         scores: Object.fromEntries(subjects.map((s) => [s, null])),
+        scoreSums: Object.fromEntries(subjects.map((s) => [s, { sum: 0, count: 0 }])),
       });
     }
-    bySem.get(r.semester)!.scores[r.subject] = r.percentage;
+    const sem = bySem.get(r.semester)!;
+    sem.scoreSums[r.subject].sum += r.percentage;
+    sem.scoreSums[r.subject].count += 1;
+    sem.scores[r.subject] = Math.round((sem.scoreSums[r.subject].sum / sem.scoreSums[r.subject].count) * 10) / 10;
   }
   const data = [...bySem.entries()]
     .sort(([, a], [, b]) => a.semOrder - b.semOrder)
@@ -153,6 +162,22 @@ function buildChartData(
       };
     });
   return { data, subjects };
+}
+
+function analysisName(subject: { name: string; category: string | null } | null | undefined): string | null {
+  if (!subject?.name) return null;
+  return subject.category || subject.name;
+}
+
+function sortAnalysisNames(names: string[]): string[] {
+  return [...names].sort((a, b) => {
+    const ia = categoryOrder.indexOf(a);
+    const ib = categoryOrder.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b, "ko");
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
 }
 
 function buildMockComparison(
@@ -208,32 +233,32 @@ export default async function AnalyticsPage() {
     supabase
       .from("exams")
       .select(
-        `exam_type, subjects ( name ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score ), created_at`,
+        `exam_type, subjects ( name, category ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score ), created_at`,
       )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("score_predictions")
-      .select(`predicted_score, prediction_target, confidence, basis, created_at, subjects ( name )`)
+      .select(`predicted_score, prediction_target, confidence, basis, created_at, subjects ( name, category )`)
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
       .from("study_logs")
       .select(
-        `id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name )`,
+        `id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name, category )`,
       )
       .eq("user_id", user.id)
       .order("study_date", { ascending: false })
       .limit(20),
     supabase
       .from("study_tasks")
-      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name )`)
+      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name, category )`)
       .eq("user_id", user.id)
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(40),
     supabase
       .from("subjects")
-      .select("id, name")
+      .select("id, name, category")
       .eq("user_id", user.id)
       .order("name"),
     supabase
@@ -257,7 +282,8 @@ export default async function AnalyticsPage() {
   const validRows = (rows as ExamRow[] ?? []).flatMap((r) => {
     const pct = r.grade_records[0]?.percentage;
     if (pct == null) return [];
-    const name = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+    const subject = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    const name = analysisName(subject);
     if (!name) return [];
     const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
     if (!sem) return [];
@@ -273,20 +299,30 @@ export default async function AnalyticsPage() {
   });
 
   const chart = buildChartData(validRows);
-  const subjectNames = [...chart.subjects].sort((a, b) => a.localeCompare(b, "ko"));
+  const subjectNames = sortAnalysisNames([...chart.subjects]);
   const subjectOptions = [...new Map(
     ((subjectRows ?? []) as SubjectRow[]).map((subject) => [subject.name, subject]),
   ).values()];
 
-  // ── 과목별 분석 ───────────────────────────────────────────────
-  const subjectGradeMap = new Map<string, GradePoint[]>();
+  // ── 카테고리별 분석 ───────────────────────────────────────────
+  const subjectGradeAccumulator = new Map<string, Map<number, { sum: number; count: number }>>();
   for (const r of validRows) {
-    if (!subjectGradeMap.has(r.subject)) subjectGradeMap.set(r.subject, []);
-    subjectGradeMap.get(r.subject)!.push({ percentage: r.percentage, semOrder: r.semOrder });
+    if (!subjectGradeAccumulator.has(r.subject)) subjectGradeAccumulator.set(r.subject, new Map());
+    const subjectSemMap = subjectGradeAccumulator.get(r.subject)!;
+    const existing = subjectSemMap.get(r.semOrder) ?? { sum: 0, count: 0 };
+    existing.sum += r.percentage;
+    existing.count += 1;
+    subjectSemMap.set(r.semOrder, existing);
   }
 
-  const subjectAnalysisList: SubjectAnalysis[] = [...subjectGradeMap.entries()].map(
-    ([subject, grades]) => {
+  const subjectAnalysisList: SubjectAnalysis[] = [...subjectGradeAccumulator.entries()].map(
+    ([subject, semMap]) => {
+      const grades = [...semMap.entries()]
+        .map(([semOrder, value]) => ({
+          semOrder,
+          percentage: Math.round((value.sum / value.count) * 10) / 10,
+        }))
+        .sort((a, b) => a.semOrder - b.semOrder);
       const metrics = computeMetrics(subject, grades);
       const risk = computeRisk(metrics);
       const strategy = computeStrategy(metrics, risk);
@@ -311,7 +347,7 @@ export default async function AnalyticsPage() {
     .map((r) => {
       const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
       return {
-        subject_name: sub?.name ?? "",
+        subject_name: analysisName(sub) ?? "",
         predicted_score: Number(r.predicted_score),
         prediction_target: r.prediction_target,
         confidence: Number(r.confidence),
@@ -321,18 +357,49 @@ export default async function AnalyticsPage() {
     })
     .filter((p) => p.subject_name);
 
+  const predictionMap = new Map<string, {
+    subject_name: string;
+    predicted_score: number;
+    prediction_target: string;
+    confidence: number;
+    basis: string;
+    created_at: string;
+    count: number;
+  }>();
+  for (const prediction of predictions) {
+    const existing = predictionMap.get(prediction.subject_name);
+    if (!existing) {
+      predictionMap.set(prediction.subject_name, { ...prediction, count: 1 });
+    } else {
+      existing.predicted_score += prediction.predicted_score;
+      existing.confidence += prediction.confidence;
+      existing.count += 1;
+      if (new Date(prediction.created_at) > new Date(existing.created_at)) {
+        existing.created_at = prediction.created_at;
+      }
+    }
+  }
+  const categoryPredictions = [...predictionMap.values()].map((prediction) => ({
+    subject_name: prediction.subject_name,
+    predicted_score: Math.round((prediction.predicted_score / prediction.count) * 10) / 10,
+    prediction_target: prediction.count > 1 ? "카테고리 평균 예측" : prediction.prediction_target,
+    confidence: Math.round((prediction.confidence / prediction.count) * 100) / 100,
+    basis: prediction.count > 1 ? `${prediction.count}개 세부 과목 예측 평균` : prediction.basis,
+    created_at: prediction.created_at,
+  }));
+
   const subjectAvgs = subjectAnalysisList.map((s) => ({
     subject: s.metrics.subject,
     avg: s.metrics.average,
   }));
 
   const recentStudyLogs = ((studyLogRows ?? []) as StudyLogRow[]).map((r) => {
-    const subject = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+    const subject = analysisName(Array.isArray(r.subjects) ? r.subjects[0] : r.subjects);
     return { ...r, subject: subject ?? "기타" };
   });
 
   const allStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[]).map((r) => {
-    const subject = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+    const subject = analysisName(Array.isArray(r.subjects) ? r.subjects[0] : r.subjects);
     return { ...r, subject: subject ?? "기타" };
   });
   const pendingStudyTasks = allStudyTasks.filter((task) => !task.is_completed);
@@ -347,7 +414,7 @@ export default async function AnalyticsPage() {
         <div>
           <h1 className="text-2xl font-bold">분석</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            과목별 성적 추이와 학습 피드백을 확인하세요
+            카테고리별 성적 추이와 학습 피드백을 확인하세요
           </p>
         </div>
         <AnalysisModeSelect subjects={subjectNames} />
@@ -386,7 +453,7 @@ export default async function AnalyticsPage() {
             </div>
             {subjectAnalysisList.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
-                성적을 등록하면 과목별 피드백이 표시됩니다.
+                성적을 등록하면 카테고리별 피드백이 표시됩니다.
               </p>
             ) : (
               <div className="space-y-3">
@@ -421,7 +488,7 @@ export default async function AnalyticsPage() {
                   <thead className="sticky top-0 bg-white">
                     <tr className="border-b text-muted-foreground text-left">
                       <th className="pb-2 font-medium">날짜</th>
-                      <th className="pb-2 font-medium">과목</th>
+                      <th className="pb-2 font-medium">카테고리</th>
                       <th className="pb-2 font-medium text-right">공부 시간</th>
                       <th className="pb-2 font-medium text-right">난이도</th>
                       <th className="pb-2 font-medium text-right">집중도</th>
@@ -568,7 +635,7 @@ export default async function AnalyticsPage() {
               <div>
                 <h2 className="text-base font-semibold">모의고사와 내신 비교</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  최근 모의고사와 내신에서 함께 확인할 과목을 정리했습니다.
+                  최근 모의고사와 내신에서 함께 확인할 카테고리를 정리했습니다.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -582,22 +649,22 @@ export default async function AnalyticsPage() {
                 <div className="rounded-xl border bg-muted/20 p-3">
                   <p className="text-xs text-muted-foreground">함께 우선 확인</p>
                   <p className="mt-1 font-semibold">
-                    {mockComparison.overlap.length > 0 ? mockComparison.overlap.join(", ") : "겹치는 과목 없음"}
+                    {mockComparison.overlap.length > 0 ? mockComparison.overlap.join(", ") : "겹치는 카테고리 없음"}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    모의고사와 내신 모두에서 보완이 필요한 과목
+                    모의고사와 내신 모두에서 보완이 필요한 카테고리
                   </p>
                 </div>
               </div>
               <div className="space-y-2 text-xs text-muted-foreground">
                 <p>
-                  모의고사 보완 과목:{" "}
+                  모의고사 보완 카테고리:{" "}
                   <span className="font-medium text-foreground">
                     {mockComparison.mockWeakSubjects.length > 0 ? mockComparison.mockWeakSubjects.join(", ") : "-"}
                   </span>
                 </p>
                 <p>
-                  내신 관리 과목:{" "}
+                  내신 관리 카테고리:{" "}
                   <span className="font-medium text-foreground">
                     {mockComparison.schoolWeakSubjects.length > 0 ? mockComparison.schoolWeakSubjects.join(", ") : "-"}
                   </span>
@@ -608,7 +675,7 @@ export default async function AnalyticsPage() {
 
           <div className="rounded-2xl border bg-white p-6 space-y-4">
             <h2 className="text-base font-semibold">성적 예측</h2>
-            <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
+            <PredictionSection predictions={categoryPredictions} subjectAvgs={subjectAvgs} />
           </div>
 
         </div>

@@ -5,8 +5,7 @@ import { updateGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
-  commonSubjects,
-  sortSubjectsByPreferredOrder,
+  subjectCategories,
   semesterTypeLabels,
   type ExamType,
   type SemesterType,
@@ -36,18 +35,19 @@ type Grade = {
   memo: string | null;
 };
 
-export default function GradeEditForm({ grade, subjects }: { grade: Grade; subjects: string[] }) {
+export default function GradeEditForm({
+  grade,
+  initialCategory,
+  showCategory = false,
+}: {
+  grade: Grade;
+  initialCategory?: string | null;
+  showCategory?: boolean;
+}) {
   const [state, action, pending] = useActionState(updateGrade, null);
   const [open, setOpen] = useState(false);
-
-  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
-  const isKnown = subjectOptions.includes(grade.subject);
-
-  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(
-    isKnown ? "select" : "custom"
-  );
-  const [selectedSubject, setSelectedSubject] = useState(isKnown ? grade.subject : "");
-  const [customSubject, setCustomSubject] = useState(isKnown ? "" : grade.subject);
+  const [category, setCategory] = useState(initialCategory ?? "");
+  const [subjectName, setSubjectName] = useState(grade.subject);
   const [examType, setExamType] = useState(grade.examType);
   const [score, setScore] = useState(String(grade.score));
   const [maxScore, setMaxScore] = useState(String(grade.maxScore));
@@ -59,8 +59,6 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
     if (state?.success) setOpen(false);
   }, [state]);
 
-  const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="ghost" size="sm">수정</Button>} />
@@ -68,39 +66,52 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
         <DialogHeader>
           <DialogTitle>성적 수정</DialogTitle>
         </DialogHeader>
-        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            startTransition(() => action(new FormData(e.currentTarget)));
+          }}
+          className="space-y-4 mt-2"
+        >
           <input type="hidden" name="exam_id" value={grade.examId} />
           <input type="hidden" name="subject_name" value={subjectName} />
-          <div className="space-y-2">
-            <Label>과목명<span className="text-red-500">*</span></Label>
-            <select
-              value={subjectMode === "custom" ? "__custom__" : selectedSubject}
-              onChange={(e) => {
-                if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
-              }}
-              className={selectClass}
-            >
-              <option value="">과목 선택</option>
-              {subjectOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-              <option value="__custom__">기타(직접 입력)</option>
-            </select>
-            {subjectMode === "custom" && (
+          <input type="hidden" name="category" value={category} />
+
+          {showCategory ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>카테고리</Label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">선택 안 함</option>
+                  {subjectCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>과목명<span className="text-red-500">*</span></Label>
+                <Input
+                  value={subjectName}
+                  onChange={(e) => setSubjectName(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>과목명<span className="text-red-500">*</span></Label>
               <Input
-                placeholder="과목명 입력"
-                value={customSubject}
-                onChange={(e) => setCustomSubject(e.target.value)}
-                autoFocus
+                value={subjectName}
+                onChange={(e) => setSubjectName(e.target.value)}
+                required
               />
-            )}
-          </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="edit_exam_type">시험 종류<span className="text-red-500">*</span></Label>
             <select
@@ -113,14 +124,13 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
               {examTypeGroups.map((group) => (
                 <optgroup key={group.label} label={group.label}>
                   {group.types.map((type) => (
-                    <option key={type} value={type}>
-                      {examTypeLabels[type]}
-                    </option>
+                    <option key={type} value={type}>{examTypeLabels[type]}</option>
                   ))}
                 </optgroup>
               ))}
             </select>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="edit_score">점수<span className="text-red-500">*</span></Label>
@@ -148,6 +158,7 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
               />
             </div>
           </div>
+
           <div className="space-y-2">
             <Label>학기<span className="text-red-500">*</span></Label>
             <div className="grid grid-cols-2 gap-2">
@@ -166,12 +177,15 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
                 onChange={(e) => setSemesterType(e.target.value as SemesterType)}
                 className={selectClass}
               >
-                {(Object.entries(semesterTypeLabels) as [SemesterType, string][]).map(([val, label]) => (
-                  <option key={val} value={val}>{label}</option>
-                ))}
+                {(Object.entries(semesterTypeLabels) as [SemesterType, string][]).map(
+                  ([val, label]) => (
+                    <option key={val} value={val}>{label}</option>
+                  )
+                )}
               </select>
             </div>
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="edit_memo">메모 (선택)</Label>
             <Input
@@ -181,9 +195,8 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
               onChange={(e) => setMemo(e.target.value)}
             />
           </div>
-          {state?.error && (
-            <p className="text-sm text-red-500">{state.error}</p>
-          )}
+
+          {state?.error && <p className="text-sm text-red-500">{state.error}</p>}
           <Button type="submit" className="w-full" disabled={pending}>
             {pending ? "저장 중..." : "저장"}
           </Button>

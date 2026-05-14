@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { formatSemester, type ExamType, type SemesterType } from "@/lib/constants/grades";
+import { formatSemester, categoryOrder, type ExamType, type SemesterType } from "@/lib/constants/grades";
 import GradeForm from "@/components/grades/GradeForm";
 import { encodeSubjectSegment } from "@/lib/subject-route";
 
@@ -9,7 +9,7 @@ type ExamRow = {
   id: string;
   exam_type: string;
   semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
-  subjects: { name: string } | { name: string }[] | null;
+  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
   grade_records: { score: number; max_score: number; percentage: number; memo: string | null }[];
 };
 
@@ -18,6 +18,8 @@ type SubjectSummary = {
   avg: number;
   count: number;
   latestSemester: string;
+  latestSubject: string;
+  subjects: string[];
 };
 
 export default async function GradesPage() {
@@ -25,69 +27,99 @@ export default async function GradesPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: rows }, { data: subjectRows }] = await Promise.all([
+  const [{ data: rows }, { data: profileData }] = await Promise.all([
     supabase
       .from("exams")
       .select(`
         id,
         exam_type,
         semesters!exam_semester ( year, semester_type ),
-        subjects ( name ),
+        subjects ( name, category ),
         grade_records ( score, max_score, percentage, memo )
       `)
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
-      .from("subjects")
-      .select("name")
-      .eq("user_id", user.id)
-      .order("name"),
+      .from("profiles")
+      .select("school_level")
+      .eq("id", user.id)
+      .single(),
   ]);
 
-  const subjectNames = [...new Set((subjectRows ?? []).map((s) => s.name))];
+  const showCategory = profileData?.school_level === "high";
 
-  const grades = (rows as ExamRow[] ?? []).flatMap((r) => {
+  const grades = ((rows ?? []) as ExamRow[]).flatMap((r) => {
     const grade = r.grade_records[0];
     if (!grade) return [];
-    const subjectName = Array.isArray(r.subjects)
-      ? r.subjects[0]?.name ?? ""
-      : r.subjects?.name ?? "";
+    const subjectData = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+    if (!subjectData) return [];
     const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
     if (!sem) return [];
     return [{
       examId: r.id,
-      subject: subjectName,
+      subject: subjectData.name,
+      category: subjectData.category,
       examType: r.exam_type as ExamType,
-      score: grade.score,
-      maxScore: grade.max_score,
       percentage: grade.percentage,
       semesterYear: sem.year,
       semesterType: sem.semester_type as SemesterType,
-      memo: grade.memo,
     }];
   });
 
-  /* 과목별 요약 */
-  const subjectMap = new Map<string, { percentages: number[]; semOrders: number[] }>();
+  /* 큰 과목(카테고리)별 요약 */
+  const subjectMap = new Map<string, {
+    percentages: number[];
+    semOrders: number[];
+    subjects: Set<string>;
+    latestSubject: string;
+    latestOrder: number;
+  }>();
   for (const g of grades) {
-    if (!subjectMap.has(g.subject)) subjectMap.set(g.subject, { percentages: [], semOrders: [] });
-    const entry = subjectMap.get(g.subject)!;
+    const displayName = showCategory ? g.category ?? g.subject : g.subject;
+    const semOrder = g.semesterYear * 10 + (g.semesterType === "semester_2" ? 2 : 1);
+    if (!subjectMap.has(displayName)) {
+      subjectMap.set(displayName, {
+        percentages: [],
+        semOrders: [],
+        subjects: new Set(),
+        latestSubject: g.subject,
+        latestOrder: semOrder,
+      });
+    }
+    const entry = subjectMap.get(displayName)!;
     entry.percentages.push(g.percentage);
-    entry.semOrders.push(g.semesterYear * 10 + (g.semesterType === "semester_2" ? 2 : 1));
+    entry.semOrders.push(semOrder);
+    entry.subjects.add(g.subject);
+    if (semOrder >= entry.latestOrder) {
+      entry.latestOrder = semOrder;
+      entry.latestSubject = g.subject;
+    }
   }
 
-  const subjectSummaries: SubjectSummary[] = [...subjectMap.entries()].map(([name, { percentages, semOrders }]) => {
+  const subjectSummaries: SubjectSummary[] = [...subjectMap.entries()].map(([name, { percentages, semOrders, subjects, latestSubject }]) => {
     const avg = Math.round((percentages.reduce((a, b) => a + b, 0) / percentages.length) * 10) / 10;
     const maxSemOrder = Math.max(...semOrders);
     const year = Math.floor(maxSemOrder / 10);
     const semType: SemesterType = maxSemOrder % 10 === 2 ? "semester_2" : "semester_1";
-    return { name, avg, count: percentages.length, latestSemester: formatSemester(year, semType) };
-  }).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    return {
+      name,
+      avg,
+      count: percentages.length,
+      latestSemester: formatSemester(year, semType),
+      latestSubject,
+      subjects: [...subjects].sort((a, b) => a.localeCompare(b, "ko")),
+    };
+  }).sort((a, b) => {
+    const ia = categoryOrder.indexOf(a.name);
+    const ib = categoryOrder.indexOf(b.name);
+    if (ia === -1 && ib === -1) return a.name.localeCompare(b.name, "ko");
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
 
   /* 학기 목록 */
-  const semesterSet = new Set(
-    grades.map((g) => `${g.semesterYear}-${g.semesterType}`)
-  );
+  const semesterSet = new Set(grades.map((g) => `${g.semesterYear}-${g.semesterType}`));
   const semesters = [...semesterSet]
     .map((s) => {
       const [year, type] = s.split("-");
@@ -99,6 +131,34 @@ export default async function GradesPage() {
     })
     .sort((a, b) => b.order - a.order);
 
+  const renderCard = (s: SubjectSummary) => {
+    const color = s.avg >= 80 ? "text-green-600" : s.avg >= 60 ? "text-yellow-600" : "text-red-500";
+    return (
+      <Link
+        key={s.name}
+        href={`/grades/${encodeSubjectSegment(s.name)}`}
+        className="rounded-2xl border bg-white p-5 flex flex-col gap-3 hover:shadow-md transition-shadow no-underline text-foreground"
+      >
+        <div>
+          <p className="text-base font-bold">{s.name}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {s.latestSemester}
+            {showCategory && s.latestSubject !== s.name ? ` · ${s.latestSubject}` : ""}
+          </p>
+        </div>
+        <div>
+          <span className={`text-2xl font-bold ${color}`}>{s.avg}점</span>
+          <span className="text-xs text-muted-foreground ml-1">평균 ({s.count}회)</span>
+        </div>
+        {showCategory && s.subjects.length > 1 && (
+          <p className="text-xs text-muted-foreground">
+            반영 과목: {s.subjects.join(", ")}
+          </p>
+        )}
+      </Link>
+    );
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-6">
       {/* 상단 */}
@@ -109,7 +169,7 @@ export default async function GradesPage() {
             과목별 시험 성적을 기록하고 관리하세요
           </p>
         </div>
-        <GradeForm subjects={subjectNames} />
+        <GradeForm showCategory={showCategory} />
       </div>
 
       {subjectSummaries.length === 0 ? (
@@ -119,7 +179,7 @@ export default async function GradesPage() {
         </div>
       ) : (
         <>
-          {/* 학기별 요약 정보 */}
+          {/* 등록된 학기 */}
           {semesters.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm text-muted-foreground">등록된 학기:</span>
@@ -134,35 +194,9 @@ export default async function GradesPage() {
             </div>
           )}
 
-          {/* 과목 카드 그리드 */}
-          <div className="grid grid-cols-4 gap-4">
-            {subjectSummaries.map((s) => {
-              const color =
-                s.avg >= 80
-                  ? "text-green-600"
-                  : s.avg >= 60
-                  ? "text-yellow-600"
-                  : "text-red-500";
-              return (
-                <Link
-                  key={s.name}
-                  href={`/grades/${encodeSubjectSegment(s.name)}`}
-                  className="rounded-2xl border bg-white p-5 flex flex-col gap-3 hover:shadow-md transition-shadow no-underline text-foreground"
-                >
-                  <div>
-                    <p className="text-base font-bold">{s.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{s.latestSemester}</p>
-                  </div>
-                  <div>
-                    <span className={`text-2xl font-bold ${color}`}>{s.avg}점</span>
-                    <span className="text-xs text-muted-foreground ml-1">평균 ({s.count}회)</span>
-                  </div>
-                  <div className="mt-auto inline-flex items-center justify-center rounded-lg bg-secondary/20 px-3 py-1.5 text-sm font-medium text-muted-foreground">
-                    → 홈 바로가기
-                  </div>
-                </Link>
-              );
-            })}
+          {/* 과목 목록 */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {subjectSummaries.map((s) => renderCard(s))}
           </div>
         </>
       )}

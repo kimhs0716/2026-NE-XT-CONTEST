@@ -5,8 +5,7 @@ import { addGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
-  commonSubjects,
-  sortSubjectsByPreferredOrder,
+  subjectCategories,
   semesterTypeLabels,
   type SemesterType,
 } from "@/lib/constants/grades";
@@ -29,46 +28,31 @@ function defaultSemesterType(): SemesterType {
   return m >= 3 && m <= 8 ? "semester_1" : "semester_2";
 }
 
-const INITIAL = {
-  subjectMode: "select" as "select" | "custom",
-  selectedSubject: "",
-  customSubject: "",
-  examType: "midterm",
-  score: "",
-  maxScore: "100",
-  memo: "",
-};
-
-export default function GradeForm({ subjects }: { subjects: string[] }) {
+export default function GradeForm({ showCategory = false }: { showCategory?: boolean }) {
   const [state, action, pending] = useActionState(addGrade, null);
   const [open, setOpen] = useState(false);
-  const [subjectMode, setSubjectMode] = useState(INITIAL.subjectMode);
-  const [selectedSubject, setSelectedSubject] = useState(INITIAL.selectedSubject);
-  const [customSubject, setCustomSubject] = useState(INITIAL.customSubject);
-  const [examType, setExamType] = useState(INITIAL.examType);
-  const [score, setScore] = useState(INITIAL.score);
-  const [maxScore, setMaxScore] = useState(INITIAL.maxScore);
+  const [category, setCategory] = useState("");
+  const [subjectName, setSubjectName] = useState("");
+  const [examType, setExamType] = useState("midterm");
+  const [score, setScore] = useState("");
+  const [maxScore, setMaxScore] = useState("100");
   const [semesterYear, setSemesterYear] = useState(() => new Date().getFullYear());
   const [semesterType, setSemesterType] = useState<SemesterType>(defaultSemesterType);
-  const [memo, setMemo] = useState(INITIAL.memo);
+  const [memo, setMemo] = useState("");
 
   useEffect(() => {
     if (state?.success) {
       setOpen(false);
-      setSubjectMode(INITIAL.subjectMode);
-      setSelectedSubject(INITIAL.selectedSubject);
-      setCustomSubject(INITIAL.customSubject);
-      setExamType(INITIAL.examType);
-      setScore(INITIAL.score);
-      setMaxScore(INITIAL.maxScore);
+      setCategory("");
+      setSubjectName("");
+      setExamType("midterm");
+      setScore("");
+      setMaxScore("100");
       setSemesterYear(new Date().getFullYear());
       setSemesterType(defaultSemesterType());
-      setMemo(INITIAL.memo);
+      setMemo("");
     }
   }, [state]);
-
-  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
-  const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => setOpen(isOpen)}>
@@ -77,38 +61,53 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
         <DialogHeader>
           <DialogTitle>성적 추가</DialogTitle>
         </DialogHeader>
-        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            startTransition(() => action(new FormData(e.currentTarget)));
+          }}
+          className="space-y-4 mt-2"
+        >
           <input type="hidden" name="subject_name" value={subjectName} />
-          <div className="space-y-2">
-            <Label>과목명<span className="text-red-500">*</span></Label>
-            <select
-              value={subjectMode === "custom" ? "__custom__" : selectedSubject}
-              onChange={(e) => {
-                if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
-              }}
-              className={selectClass}
-            >
-              <option value="">과목 선택</option>
-              {subjectOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-              <option value="__custom__">기타(직접 입력)</option>
-            </select>
-            {subjectMode === "custom" && (
+          <input type="hidden" name="category" value={category} />
+
+          {showCategory ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>카테고리</Label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">선택 안 함</option>
+                  {subjectCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>과목명<span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="화법과작문, 수학I…"
+                  value={subjectName}
+                  onChange={(e) => setSubjectName(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>과목명<span className="text-red-500">*</span></Label>
               <Input
-                placeholder="과목명 입력"
-                value={customSubject}
-                onChange={(e) => setCustomSubject(e.target.value)}
-                autoFocus
+                placeholder="국어, 수학, 영어…"
+                value={subjectName}
+                onChange={(e) => setSubjectName(e.target.value)}
+                required
               />
-            )}
-          </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="exam_type">시험 종류<span className="text-red-500">*</span></Label>
             <select
@@ -121,14 +120,13 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
               {examTypeGroups.map((group) => (
                 <optgroup key={group.label} label={group.label}>
                   {group.types.map((type) => (
-                    <option key={type} value={type}>
-                      {examTypeLabels[type]}
-                    </option>
+                    <option key={type} value={type}>{examTypeLabels[type]}</option>
                   ))}
                 </optgroup>
               ))}
             </select>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="score">점수<span className="text-red-500">*</span></Label>
@@ -157,6 +155,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
               />
             </div>
           </div>
+
           <div className="space-y-2">
             <Label>학기<span className="text-red-500">*</span></Label>
             <div className="grid grid-cols-2 gap-2">
@@ -175,12 +174,15 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
                 onChange={(e) => setSemesterType(e.target.value as SemesterType)}
                 className={selectClass}
               >
-                {(Object.entries(semesterTypeLabels) as [SemesterType, string][]).map(([val, label]) => (
-                  <option key={val} value={val}>{label}</option>
-                ))}
+                {(Object.entries(semesterTypeLabels) as [SemesterType, string][]).map(
+                  ([val, label]) => (
+                    <option key={val} value={val}>{label}</option>
+                  )
+                )}
               </select>
             </div>
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="memo">메모 (선택)</Label>
             <Input
@@ -191,9 +193,8 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
               onChange={(e) => setMemo(e.target.value)}
             />
           </div>
-          {state?.error && (
-            <p className="text-sm text-red-500">{state.error}</p>
-          )}
+
+          {state?.error && <p className="text-sm text-red-500">{state.error}</p>}
           <Button type="submit" className="w-full" disabled={pending}>
             {pending ? "저장 중..." : "저장"}
           </Button>

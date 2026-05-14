@@ -2,6 +2,7 @@ import type { SubjectInsight } from "@/lib/analytics/types";
 
 export type StudyFeedbackContext = {
   subject: string;
+  category: string | null;
   targetScore: number | null;
   targetGap: number | null;
   logCount: number;
@@ -64,6 +65,7 @@ export function buildFeedbackPrompt(
     const contents = summarizeContents(study?.recentContents ?? []);
     return [
       `sub=${s.subject}`,
+      study?.category ? `cat=${study.category}` : null,
       `avg=${s.average}`,
       `last=${s.latestScore}`,
       `delta=${signed(s.recentDelta)}`,

@@ -95,7 +95,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     supabase
       .from("exams")
       .select(
-        `subjects ( id, name ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage )`,
+        `subjects ( id, name, category ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage )`,
       )
       .eq("user_id", user.id),
     supabase
@@ -138,7 +138,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
   if (!rows?.length) return { error: "성적 데이터가 없습니다." };
 
   // 과목별 성적 집계
-  const subjectMap = new Map<string, { name: string; grades: GradePoint[] }>();
+  const subjectMap = new Map<string, { name: string; category: string | null; grades: GradePoint[] }>();
   for (const r of rows) {
     const pct = r.grade_records[0]?.percentage;
     if (pct == null) continue;
@@ -150,7 +150,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       sem.year * 10 +
       ((sem.semester_type as SemesterType) === "semester_2" ? 2 : 1);
     if (!subjectMap.has(sub.id))
-      subjectMap.set(sub.id, { name: sub.name, grades: [] });
+      subjectMap.set(sub.id, { name: sub.name, category: (sub as { id: string; name: string; category?: string | null }).category ?? null, grades: [] });
     subjectMap.get(sub.id)!.grades.push({ percentage: Number(pct), semOrder });
   }
 
@@ -177,6 +177,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     string,
     {
       subject: string;
+      category: string | null;
       logCount: number;
       totalMinutes: number;
       concentrationSum: number;
@@ -192,10 +193,11 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     }
   >();
 
-  function ensureStudyEntry(subjectId: string, subjectName: string) {
+  function ensureStudyEntry(subjectId: string, subjectName: string, category: string | null = null) {
     if (!studyMap.has(subjectId)) {
       studyMap.set(subjectId, {
         subject: subjectName,
+        category,
         logCount: 0,
         totalMinutes: 0,
         concentrationSum: 0,
@@ -274,14 +276,15 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     }
   }
 
-  for (const [subjectId, { name }] of subjectMap.entries()) {
-    ensureStudyEntry(subjectId, name);
+  for (const [subjectId, { name, category }] of subjectMap.entries()) {
+    ensureStudyEntry(subjectId, name, category);
   }
 
   const studyContexts: StudyFeedbackContext[] = [...studyMap.values()].map((entry) => {
     const latestScore = insights.find((insight) => insight.subject === entry.subject)?.latestScore ?? null;
     return {
       subject: entry.subject,
+      category: entry.category,
       targetScore: entry.targetScore,
       targetGap:
         entry.targetScore == null || latestScore == null

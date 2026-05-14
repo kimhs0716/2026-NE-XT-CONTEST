@@ -12,7 +12,7 @@ import GradeForm from "@/components/grades/GradeForm";
 import GradeEditForm from "@/components/grades/GradeEditForm";
 import GradeDeleteButton from "@/components/grades/GradeDeleteButton";
 import SubjectGoalForm from "@/components/grades/SubjectGoalForm";
-import { decodeSubjectSegment } from "@/lib/subject-route";
+import { decodeSubjectSegment, encodeSubjectSegment } from "@/lib/subject-route";
 
 type ExamRow = {
   id: string;
@@ -27,6 +27,7 @@ type ExamRow = {
 type SubjectRow = {
   id: string;
   name: string;
+  category: string | null;
   semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
 };
 
@@ -51,10 +52,10 @@ export default async function SubjectPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: subjectRows }, { data: examsBySubject }, { data: goalRows }] = await Promise.all([
+  const [{ data: subjectRows }, { data: examsBySubject }, { data: goalRows }, { data: profileData }] = await Promise.all([
     supabase
       .from("subjects")
-      .select("id, name, semesters ( year, semester_type )")
+      .select("id, name, category, semesters ( year, semester_type )")
       .eq("user_id", user.id)
       .order("name"),
     supabase
@@ -63,7 +64,7 @@ export default async function SubjectPage({
         id,
         exam_type,
         semesters!exam_semester ( year, semester_type ),
-        subjects ( name ),
+        subjects ( name, category ),
         grade_records ( score, max_score, percentage, memo )
       `)
       .eq("user_id", user.id),
@@ -71,19 +72,41 @@ export default async function SubjectPage({
       .from("subject_goals")
       .select("subject_id, target_score, target_date, memo")
       .eq("user_id", user.id),
+    supabase
+      .from("profiles")
+      .select("school_level")
+      .eq("id", user.id)
+      .single(),
   ]);
 
-  const grades = ((examsBySubject ?? []) as (ExamRow & { subjects: { name: string } | { name: string }[] | null })[])
+  const showCategory = profileData?.school_level === "high";
+
+  const typedSubjectRows = (subjectRows ?? []) as SubjectRow[];
+  const matchedSubjects = typedSubjectRows.filter((s) =>
+    s.name === subject || (showCategory && s.category === subject),
+  );
+  const detailTitle = showCategory && matchedSubjects.some((s) => s.category === subject)
+    ? subject
+    : matchedSubjects[0]?.name ?? subject;
+  const subjectCategory = matchedSubjects[0]?.category ?? null;
+  const isCategoryPage = showCategory && matchedSubjects.some((s) => s.category === subject);
+
+  const grades = ((examsBySubject ?? []) as (ExamRow & {
+    subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
+  })[])
     .flatMap((r) => {
-      const subName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
-      if (subName !== subject) return [];
+      const subjectData = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
+      if (!subjectData) return [];
+      const groupName = showCategory ? subjectData.category ?? subjectData.name : subjectData.name;
+      if (groupName !== subject && subjectData.name !== subject) return [];
       const grade = r.grade_records[0];
       if (!grade) return [];
       const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
       if (!sem) return [];
       return [{
         examId: r.id,
-        subject,
+        subject: subjectData.name,
+        category: subjectData.category,
         examType: r.exam_type as ExamType,
         score: grade.score,
         maxScore: grade.max_score,
@@ -98,9 +121,6 @@ export default async function SubjectPage({
     .sort((a, b) => a.semOrder - b.semOrder);
 
   if (grades.length === 0) notFound();
-
-  const typedSubjectRows = (subjectRows ?? []) as SubjectRow[];
-  const subjectNames = [...new Set(typedSubjectRows.map((s) => s.name))];
 
   /* 학기 목록 */
   const semesterLabels = [...new Set(grades.map((g) => g.semesterLabel))];
@@ -138,7 +158,7 @@ export default async function SubjectPage({
   });
 
   const subjectIds = typedSubjectRows
-    .filter((s) => s.name === subject)
+    .filter((s) => matchedSubjects.some((matched) => matched.id === s.id))
     .map((s) => {
       const sem = Array.isArray(s.semesters) ? s.semesters[0] : s.semesters;
       return {
@@ -162,19 +182,29 @@ export default async function SubjectPage({
       {/* 헤더 */}
       <div className="flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <Link href="/grades" className="text-sm text-muted-foreground hover:text-foreground">
-              ← 내신
-            </Link>
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Link href="/grades" className="hover:text-foreground">내신</Link>
+            {subjectCategory && (
+              <>
+                <span>/</span>
+                {isCategoryPage ? (
+                  <span>{subjectCategory}</span>
+                ) : (
+                  <Link href={`/grades/${encodeSubjectSegment(subjectCategory)}`} className="hover:text-foreground">
+                    {subjectCategory}
+                  </Link>
+                )}
+              </>
+            )}
           </div>
-          <h1 className="text-2xl font-bold mt-1">{subject}</h1>
+          <h1 className="text-2xl font-bold mt-1">{detailTitle}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{latestSemester}</p>
         </div>
         <div className="flex items-center gap-2">
           {goalSubjectId && (
             <SubjectGoalForm
               subjectId={goalSubjectId}
-              subjectName={subject}
+              subjectName={detailTitle}
               goal={
                 goal
                   ? {
@@ -186,7 +216,7 @@ export default async function SubjectPage({
               }
             />
           )}
-          <GradeForm subjects={subjectNames} />
+          <GradeForm showCategory={showCategory} />
         </div>
       </div>
 
@@ -237,6 +267,9 @@ export default async function SubjectPage({
           <thead>
             <tr className="border-b bg-gray-50/50">
               <th className="py-3 px-4 text-left font-medium text-muted-foreground w-28">학기</th>
+              {isCategoryPage && (
+                <th className="py-3 px-4 text-left font-medium text-muted-foreground w-36">반영 과목</th>
+              )}
               {MAIN_EXAM_TYPES.map((et) => (
                 <th key={et} className="py-3 px-4 text-center font-medium text-muted-foreground">
                   {examTypeLabels[et]}
@@ -248,6 +281,12 @@ export default async function SubjectPage({
             {semesterLabels.map((sem) => (
               <tr key={sem} className="border-b last:border-0">
                 <td className="py-3 px-4 font-medium text-sm">{sem}</td>
+                {isCategoryPage && (
+                  <td className="py-3 px-4 text-sm text-muted-foreground">
+                    {[...new Set(MAIN_EXAM_TYPES.map((et) => tableData[et][sem]?.subject).filter(Boolean))]
+                      .join(", ") || "-"}
+                  </td>
+                )}
                 {MAIN_EXAM_TYPES.map((et) => {
                   const cell = tableData[et][sem];
                   const pctColor = cell
@@ -268,7 +307,7 @@ export default async function SubjectPage({
                             {cell.percentage.toFixed(1)}점
                           </p>
                           <div className="flex items-center justify-center gap-1">
-                            <GradeEditForm grade={cell} subjects={subjectNames} />
+                            <GradeEditForm grade={cell} initialCategory={subjectCategory} showCategory={showCategory} />
                             <GradeDeleteButton examId={cell.examId} />
                           </div>
                         </div>
@@ -292,6 +331,7 @@ export default async function SubjectPage({
             <thead>
               <tr className="border-b text-muted-foreground text-left">
                 <th className="pb-2 font-medium">학기</th>
+                {isCategoryPage && <th className="pb-2 font-medium">반영 과목</th>}
                 <th className="pb-2 font-medium">유형</th>
                 <th className="pb-2 font-medium text-right">점수</th>
                 <th className="pb-2 font-medium text-right">백분율</th>
@@ -304,12 +344,13 @@ export default async function SubjectPage({
                 .map((g) => (
                   <tr key={g.examId} className="border-b last:border-0">
                     <td className="py-2.5">{g.semesterLabel}</td>
+                    {isCategoryPage && <td className="py-2.5">{g.subject}</td>}
                     <td className="py-2.5">{examTypeLabels[g.examType]}</td>
                     <td className="py-2.5 text-right">{g.score} / {g.maxScore}</td>
                     <td className="py-2.5 text-right">{g.percentage.toFixed(1)}점</td>
                     <td className="py-2.5">
                       <div className="flex items-center justify-end gap-1">
-                        <GradeEditForm grade={g} subjects={subjectNames} />
+                        <GradeEditForm grade={g} initialCategory={subjectCategory} showCategory={showCategory} />
                         <GradeDeleteButton examId={g.examId} />
                       </div>
                     </td>
