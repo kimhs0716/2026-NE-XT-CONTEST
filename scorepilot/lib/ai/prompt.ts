@@ -43,11 +43,11 @@ function riskCode(riskLevel: SubjectInsight["riskLevel"]): string {
 
 function summarizeContents(contents: string[]): string {
   return contents
-    .slice(0, 2)
+    .slice(0, 3)
     .map((content) => content.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .join(" / ")
-    .slice(0, 80);
+    .slice(0, 120);
 }
 
 export function buildFeedbackPrompt(

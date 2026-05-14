@@ -32,8 +32,8 @@ const SECTION_CONFIG = [
     key: "focus" as const,
     label: "집중",
     icon: Target,
-    color: "text-red-500",
-    bg: "bg-red-50 border-red-100",
+    color: "text-yellow-600",
+    bg: "bg-yellow-50 border-yellow-100",
   },
   {
     key: "check" as const,
@@ -46,8 +46,8 @@ const SECTION_CONFIG = [
     key: "encourage" as const,
     label: "응원",
     icon: Heart,
-    color: "text-pink-500",
-    bg: "bg-pink-50 border-pink-100",
+    color: "text-green-600",
+    bg: "bg-green-50 border-green-100",
   },
 ];
 
