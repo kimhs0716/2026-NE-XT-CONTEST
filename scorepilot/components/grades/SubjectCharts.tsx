@@ -42,9 +42,9 @@ export default function SubjectCharts({ chartData, pieData, examTypeLabels }: Pr
           <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis dataKey="semester" tick={{ fontSize: 11 }} />
-            <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}%`} width={44} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}점`} width={44} />
             <Tooltip
-              formatter={(value) => [`${Number(value).toFixed(1)}%`]}
+              formatter={(value) => [`${Number(value).toFixed(1)}점`]}
               contentStyle={{ borderRadius: 8, fontSize: 12 }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -76,7 +76,7 @@ export default function SubjectCharts({ chartData, pieData, examTypeLabels }: Pr
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(v) => [`${Number(v).toFixed(1)}%`, "평균"]}
+                  formatter={(v) => [`${Number(v).toFixed(1)}점`, "평균"]}
                   contentStyle={{ borderRadius: 8, fontSize: 12 }}
                 />
               </PieChart>
@@ -89,7 +89,7 @@ export default function SubjectCharts({ chartData, pieData, examTypeLabels }: Pr
                     style={{ backgroundColor: COLORS[i % COLORS.length] }}
                   />
                   <span className="text-muted-foreground">{d.name}</span>
-                  <span className="font-semibold ml-auto">{d.value}%</span>
+                  <span className="font-semibold ml-auto">{d.value}점</span>
                 </div>
               ))}
             </div>

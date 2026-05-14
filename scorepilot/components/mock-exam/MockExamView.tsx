@@ -307,7 +307,7 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
           </select>
         </div>
         <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={288}>
             <LineChart data={trendData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />

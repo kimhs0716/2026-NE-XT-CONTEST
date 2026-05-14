@@ -29,12 +29,18 @@ type StudyTaskRow = {
 const EVENT_TYPE_LABEL: Record<string, string> = {
   exam: "시험",
   assignment: "수행평가",
+  mock_exam: "모의고사",
+  study: "자습",
+  school_academy: "학원",
   other: "기타",
 };
 
 const EVENT_TYPE_COLOR: Record<string, string> = {
   exam: "bg-blue-100 text-blue-700",
   assignment: "bg-orange-100 text-orange-700",
+  mock_exam: "bg-purple-100 text-purple-700",
+  study: "bg-green-100 text-green-700",
+  school_academy: "bg-teal-100 text-teal-700",
   other: "bg-gray-100 text-gray-600",
 };
 
@@ -279,7 +285,7 @@ export default async function DashboardPage() {
                 href="/grades"
                 title="내신"
                 description="시험·수행평가 성적 관리"
-                stat={currentSemAvg != null ? `${currentSemAvg}%` : "-"}
+                stat={currentSemAvg != null ? `${currentSemAvg}점` : "-"}
                 statLabel={currentSemAvg != null ? "이번 학기 평균" : undefined}
               />
               <NavCard
@@ -297,7 +303,7 @@ export default async function DashboardPage() {
               href="/grades"
               title="내신"
               description="시험·수행평가 성적 관리"
-              stat={currentSemAvg != null ? `${currentSemAvg}%` : totalExams > 0 ? `${overallAvg}%` : "-"}
+              stat={currentSemAvg != null ? `${currentSemAvg}점` : totalExams > 0 ? `${overallAvg}점` : "-"}
               statLabel={currentSemAvg != null ? "이번 학기 평균" : totalExams > 0 ? "전체 평균" : undefined}
             />
           )}
@@ -345,10 +351,12 @@ export default async function DashboardPage() {
                       >
                         {EVENT_TYPE_LABEL[s.event_type] ?? s.event_type}
                       </span>
-                      <span className="truncate">
-                        {subjectName ? `${subjectName} ` : ""}
-                        {s.title}
-                      </span>
+                      {subjectName && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600">
+                          {subjectName}
+                        </span>
+                      )}
+                      <span className="truncate">{s.title}</span>
                     </li>
                   );
                 })}

@@ -365,7 +365,7 @@ export default async function AnalyticsPage() {
               <h2 className="text-base font-semibold">종합 성적</h2>
               {overallAvg !== null && (
                 <span className="text-sm text-muted-foreground">
-                  전체 평균 <span className="font-semibold text-foreground">{overallAvg}%</span>
+                  전체 평균 <span className="font-semibold text-foreground">{overallAvg}점</span>
                 </span>
               )}
             </div>

@@ -101,7 +101,7 @@ export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; s
             </TableCell>
             <TableCell className="text-right">
               <span className={g.percentage >= 80 ? "text-green-600" : g.percentage >= 60 ? "text-yellow-600" : "text-red-500"}>
-                {g.percentage.toFixed(1)}%
+                {g.percentage.toFixed(1)}점
               </span>
             </TableCell>
             <TableCell className="text-sm text-muted-foreground whitespace-nowrap">

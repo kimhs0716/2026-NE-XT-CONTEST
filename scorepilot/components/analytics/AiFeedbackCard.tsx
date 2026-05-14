@@ -2,13 +2,54 @@
 
 import { useState, useTransition } from "react";
 import { generateAiFeedback } from "@/lib/actions/ai-feedback";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Target, CheckCircle, Heart } from "lucide-react";
 
 type FeedbackState = {
   text: string;
   source: "llm" | "fallback";
   isQuotaError: boolean;
 };
+
+type ParsedSections = {
+  focus: string | null;
+  check: string | null;
+  encourage: string | null;
+};
+
+function parseSections(text: string): ParsedSections {
+  const focusMatch = text.match(/\[집중\]\s*([\s\S]+?)(?=\s*\[(?:점검|응원)\]|$)/);
+  const checkMatch = text.match(/\[점검\]\s*([\s\S]+?)(?=\s*\[응원\]|$)/);
+  const encourageMatch = text.match(/\[응원\]\s*([\s\S]+?)$/);
+  return {
+    focus: focusMatch?.[1]?.trim() ?? null,
+    check: checkMatch?.[1]?.trim() ?? null,
+    encourage: encourageMatch?.[1]?.trim() ?? null,
+  };
+}
+
+const SECTION_CONFIG = [
+  {
+    key: "focus" as const,
+    label: "집중",
+    icon: Target,
+    color: "text-red-500",
+    bg: "bg-red-50 border-red-100",
+  },
+  {
+    key: "check" as const,
+    label: "점검",
+    icon: CheckCircle,
+    color: "text-blue-500",
+    bg: "bg-blue-50 border-blue-100",
+  },
+  {
+    key: "encourage" as const,
+    label: "응원",
+    icon: Heart,
+    color: "text-pink-500",
+    bg: "bg-pink-50 border-pink-100",
+  },
+];
 
 export default function AiFeedbackCard({
   initialFeedback,
@@ -28,7 +69,6 @@ export default function AiFeedbackCard({
     startTransition(async () => {
       const res = await generateAiFeedback();
       if (res.error) {
-        // 데이터 없음 등 진짜 오류만 에러로 표시
         setDataError(res.error);
       } else if (res.feedback) {
         setResult({
@@ -39,6 +79,10 @@ export default function AiFeedbackCard({
       }
     });
   }
+
+  const sections = result ? parseSections(result.text) : null;
+  const isStructured =
+    sections && (sections.focus || sections.check || sections.encourage);
 
   return (
     <div className="space-y-4">
@@ -53,7 +97,7 @@ export default function AiFeedbackCard({
           disabled={isPending}
           className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
-          {isPending ? "생성 중…" : result ? "AI 맞춤 피드백 다시 생성" : "AI 맞춤 피드백 생성"}
+          {isPending ? "생성 중…" : result ? "다시 생성" : "AI 맞춤 피드백 생성"}
         </button>
       </div>
 
@@ -73,7 +117,7 @@ export default function AiFeedbackCard({
         </div>
       )}
 
-      {/* 데이터 오류 (성적 없음 등) */}
+      {/* 데이터 오류 */}
       {dataError && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {dataError}
@@ -82,17 +126,45 @@ export default function AiFeedbackCard({
 
       {/* 피드백 결과 */}
       {result && !isPending && (
-        <div className="space-y-3">
-          {/* 최근 생성 배지 */}
+        <div className="space-y-2.5">
           {initialFeedback && result.text === initialFeedback.text && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+            <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium mb-1">
               최근 생성됨
             </span>
           )}
 
-          <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-            {result.text}
-          </p>
+          {isStructured ? (
+            SECTION_CONFIG.map(({ key, label, icon: Icon, color, bg }) => {
+              const content = sections[key];
+              if (!content) return null;
+              return (
+                <div
+                  key={key}
+                  className={`flex gap-3 rounded-lg border px-3.5 py-3 ${bg}`}
+                >
+                  <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${color}`} />
+                  <div>
+                    <span className={`text-xs font-semibold mr-1.5 ${color}`}>
+                      {label}
+                    </span>
+                    <span className="text-sm text-foreground leading-relaxed">
+                      {content}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+              {result.text}
+            </p>
+          )}
+
+          {result.isQuotaError && (
+            <p className="text-xs text-muted-foreground pt-1">
+              API 한도를 초과하여 기본 피드백이 제공되었습니다.
+            </p>
+          )}
         </div>
       )}
     </div>

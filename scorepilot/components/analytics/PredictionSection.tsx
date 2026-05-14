@@ -96,7 +96,7 @@ export default function PredictionSection({
 
                 <div className="flex items-end gap-3">
                   <span className={`text-3xl font-bold ${scoreColor(p.predicted_score)}`}>
-                    {p.predicted_score}%
+                    {p.predicted_score}점
                   </span>
                   {delta !== null && (
                     <span
@@ -109,7 +109,7 @@ export default function PredictionSection({
                       }`}
                     >
                       {delta > 0 ? "+" : ""}
-                      {delta.toFixed(1)}%
+                      {delta.toFixed(1)}점
                     </span>
                   )}
                 </div>

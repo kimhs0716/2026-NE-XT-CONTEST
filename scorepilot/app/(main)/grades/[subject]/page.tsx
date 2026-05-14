@@ -194,14 +194,14 @@ export default async function SubjectPage({
         <div className="rounded-2xl border bg-white p-5">
           <p className="text-xs text-muted-foreground mb-1">최근 점수</p>
           <p className="text-2xl font-bold">
-            {latestPercentage !== null ? `${latestPercentage.toFixed(1)}%` : "-"}
+            {latestPercentage !== null ? `${latestPercentage.toFixed(1)}점` : "-"}
           </p>
           <p className="text-xs text-muted-foreground mt-2">{latestSemester} 기준</p>
         </div>
         <div className="rounded-2xl border bg-white p-5">
           <p className="text-xs text-muted-foreground mb-1">목표 점수</p>
           <p className="text-2xl font-bold">
-            {goal ? `${Number(goal.target_score).toFixed(1)}%` : "미설정"}
+            {goal ? `${Number(goal.target_score).toFixed(1)}점` : "미설정"}
           </p>
           <p className="text-xs text-muted-foreground mt-2">
             {goal?.target_date ? `${goal.target_date}까지` : "목표를 설정해 추적하세요"}
@@ -265,7 +265,7 @@ export default async function SubjectPage({
                             {cell.score} / {cell.maxScore}
                           </p>
                           <p className={`text-xs ${pctColor}`}>
-                            {cell.percentage.toFixed(1)}%
+                            {cell.percentage.toFixed(1)}점
                           </p>
                           <div className="flex items-center justify-center gap-1">
                             <GradeEditForm grade={cell} subjects={subjectNames} />
@@ -306,7 +306,7 @@ export default async function SubjectPage({
                     <td className="py-2.5">{g.semesterLabel}</td>
                     <td className="py-2.5">{examTypeLabels[g.examType]}</td>
                     <td className="py-2.5 text-right">{g.score} / {g.maxScore}</td>
-                    <td className="py-2.5 text-right">{g.percentage.toFixed(1)}%</td>
+                    <td className="py-2.5 text-right">{g.percentage.toFixed(1)}점</td>
                     <td className="py-2.5">
                       <div className="flex items-center justify-end gap-1">
                         <GradeEditForm grade={g} subjects={subjectNames} />

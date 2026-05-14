@@ -278,7 +278,7 @@ export default async function SubjectAnalyticsPage({
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold">성적 추이</h2>
               <span className="text-sm text-muted-foreground">
-                평균 <span className="font-semibold text-foreground">{metrics.average}%</span>
+                평균 <span className="font-semibold text-foreground">{metrics.average}점</span>
               </span>
             </div>
             <GradeChart data={chartData} subjects={[subject]} />
@@ -292,11 +292,11 @@ export default async function SubjectAnalyticsPage({
             <div className="grid grid-cols-3 gap-4 text-center">
               <div className="rounded-xl bg-muted/30 p-3">
                 <p className="text-xs text-muted-foreground mb-1">평균</p>
-                <p className="text-xl font-bold">{metrics.average}%</p>
+                <p className="text-xl font-bold">{metrics.average}점</p>
               </div>
               <div className="rounded-xl bg-muted/30 p-3">
                 <p className="text-xs text-muted-foreground mb-1">최근 점수</p>
-                <p className="text-xl font-bold">{metrics.latestScore}%</p>
+                <p className="text-xl font-bold">{metrics.latestScore}점</p>
               </div>
               <div className="rounded-xl bg-muted/30 p-3">
                 <p className="text-xs text-muted-foreground mb-1">최근 변화</p>
@@ -528,7 +528,7 @@ export default async function SubjectAnalyticsPage({
                     : prediction.predictedScore >= 60 ? "text-yellow-600"
                     : "text-red-500"
                   )}>
-                    {prediction.predictedScore}%
+                    {prediction.predictedScore}점
                   </span>
                   {metrics.average !== null && (
                     <span className={cn(
@@ -538,7 +538,7 @@ export default async function SubjectAnalyticsPage({
                       : "text-muted-foreground"
                     )}>
                       {prediction.predictedScore > metrics.average ? "+" : ""}
-                      {(prediction.predictedScore - metrics.average).toFixed(1)}%
+                      {(prediction.predictedScore - metrics.average).toFixed(1)}점
                     </span>
                   )}
                 </div>

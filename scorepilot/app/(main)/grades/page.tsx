@@ -154,7 +154,7 @@ export default async function GradesPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">{s.latestSemester}</p>
                   </div>
                   <div>
-                    <span className={`text-2xl font-bold ${color}`}>{s.avg}%</span>
+                    <span className={`text-2xl font-bold ${color}`}>{s.avg}점</span>
                     <span className="text-xs text-muted-foreground ml-1">평균 ({s.count}회)</span>
                   </div>
                   <div className="mt-auto inline-flex items-center justify-center rounded-lg bg-secondary/20 px-3 py-1.5 text-sm font-medium text-muted-foreground">

@@ -12,6 +12,7 @@ export type StudyFeedbackContext = {
   highPriorityTaskCount: number;
   upcomingScheduleCount: number;
   nearestScheduleDays: number | null;
+  daysSinceLastStudy: number | null;
   recentContents: string[];
 };
 
@@ -56,9 +57,7 @@ export function buildFeedbackPrompt(
   mockExamSummary: MockExamSummary | null = null,
 ): string {
   const studyBySubject = new Map(studyContexts.map((s) => [s.subject, s]));
-  const sorted = [...insights]
-    .sort((a, b) => a.priority - b.priority)
-    .slice(0, 4);
+  const sorted = [...insights].sort((a, b) => a.priority - b.priority);
 
   const lines = sorted.map((s) => {
     const study = studyBySubject.get(s.subject);
@@ -78,6 +77,7 @@ export function buildFeedbackPrompt(
       `tasks=${study?.pendingTaskCount ?? 0}`,
       `hiTasks=${study?.highPriorityTaskCount ?? 0}`,
       `examD=${valueOrDash(study?.nearestScheduleDays)}`,
+      study?.daysSinceLastStudy != null ? `noStudy=${study.daysSinceLastStudy}d` : null,
       `action=${s.recommendedAction}`,
       contents ? `recent=${contents}` : null,
     ]

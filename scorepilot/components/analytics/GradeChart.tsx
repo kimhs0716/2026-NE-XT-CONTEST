@@ -43,7 +43,7 @@ function ChartTooltip({
           />
           <span className="text-muted-foreground">{entry.name}</span>
           <span className="ml-auto font-medium pl-4">
-            {Number(entry.value).toFixed(1)}%
+            {Number(entry.value).toFixed(1)}점
           </span>
         </div>
       ))}
@@ -51,7 +51,7 @@ function ChartTooltip({
         <div className="flex items-center gap-2 pt-1.5 mt-1 border-t">
           <span className="text-muted-foreground">전체 평균</span>
           <span className="ml-auto font-medium pl-4">
-            {Number(avg.value).toFixed(1)}%
+            {Number(avg.value).toFixed(1)}점
           </span>
         </div>
       )}
@@ -91,7 +91,7 @@ export default function GradeChart({ data, subjects }: Props) {
         <YAxis
           domain={[0, 100]}
           tick={{ fontSize: 12 }}
-          tickFormatter={(v) => `${v}%`}
+          tickFormatter={(v) => `${v}점`}
           width={48}
         />
         <Tooltip content={<ChartTooltip />} />

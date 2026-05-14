@@ -786,7 +786,7 @@ export default async function StrategyPage() {
             <div className="grid gap-4 md:grid-cols-4">
               <div className="rounded-2xl border bg-white p-5">
                 <p className="text-xs text-muted-foreground mb-1">전체 평균</p>
-                <p className="text-2xl font-bold">{overallAvg != null ? `${overallAvg}%` : "-"}</p>
+                <p className="text-2xl font-bold">{overallAvg != null ? `${overallAvg}점` : "-"}</p>
                 <p className="text-xs text-muted-foreground mt-2">분석된 과목 {totalSubjects}개</p>
               </div>
               <div className="rounded-2xl border bg-white p-5">
@@ -847,15 +847,15 @@ export default async function StrategyPage() {
                         <div className="grid grid-cols-3 gap-3 text-center shrink-0">
                           <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
                             <p className="text-[10px] text-muted-foreground">평균</p>
-                            <p className="font-bold">{item.average}%</p>
+                            <p className="font-bold">{item.average}점</p>
                           </div>
                           <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
                             <p className="text-[10px] text-muted-foreground">최근 점수</p>
-                            <p className="font-bold">{item.latestScore}%</p>
+                            <p className="font-bold">{item.latestScore}점</p>
                           </div>
                           <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
                             <p className="text-[10px] text-muted-foreground">예측</p>
-                            <p className="font-bold">{item.predictedScore != null ? `${item.predictedScore}%` : "-"}</p>
+                            <p className="font-bold">{item.predictedScore != null ? `${item.predictedScore}점` : "-"}</p>
                           </div>
                         </div>
                       </div>

@@ -53,11 +53,11 @@ export function buildWeaknessDraft(signal: WeaknessSignal): WeaknessDraft | null
 
   if (signal.average < 70) {
     severity += 1;
-    reasons.push(`평균 ${signal.average}%`);
+    reasons.push(`평균 ${signal.average}점`);
   }
   if (signal.average < 60) {
     severity += 1;
-    reasons.push("평균 60% 미만");
+    reasons.push("평균 60점 미만");
   }
   if (signal.recentDelta !== null && signal.recentDelta <= -5) {
     severity += 1;

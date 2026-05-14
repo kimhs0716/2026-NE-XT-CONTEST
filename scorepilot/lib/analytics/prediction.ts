@@ -42,7 +42,7 @@ export function computePrediction(grades: GradePoint[]): PredictionResult | null
 
   const trendStr =
     slope > 3 ? "상승 추세 ↑" : slope < -3 ? "하락 추세 ↓" : "안정 추세 →";
-  const basis = `${n}회 기록 분석 · ${trendStr} · 가중 평균 ${weightedAvg.toFixed(1)}%`;
+  const basis = `${n}회 기록 분석 · ${trendStr} · 가중 평균 ${weightedAvg.toFixed(1)}점`;
 
   return { predictedScore, confidence, basis };
 }

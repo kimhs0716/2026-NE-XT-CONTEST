@@ -100,7 +100,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       .eq("user_id", user.id),
     supabase
       .from("study_logs")
-      .select(`duration_minutes, difficulty, concentration_level, content, subjects ( id, name )`)
+      .select(`study_date, duration_minutes, difficulty, concentration_level, content, subjects ( id, name )`)
       .eq("user_id", user.id)
       .order("study_date", { ascending: false })
       .limit(30),
@@ -167,6 +167,12 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
 
   if (insights.length === 0) return { error: "분석할 데이터가 없습니다." };
 
+  const todayMs = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate(),
+  );
+
   const studyMap = new Map<
     string,
     {
@@ -182,6 +188,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       targetScore: number | null;
       upcomingScheduleCount: number;
       nearestScheduleDays: number | null;
+      lastStudyDate: string | null;
     }
   >();
 
@@ -200,12 +207,14 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
         targetScore: null,
         upcomingScheduleCount: 0,
         nearestScheduleDays: null,
+        lastStudyDate: null,
       });
     }
     return studyMap.get(subjectId)!;
   }
 
   for (const r of (studyLogs ?? []) as {
+    study_date: string | null;
     duration_minutes: number | null;
     difficulty: string | null;
     concentration_level: number | null;
@@ -217,6 +226,7 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
     const entry = ensureStudyEntry(sub.id, sub.name);
     entry.logCount += 1;
     entry.totalMinutes += r.duration_minutes ?? 0;
+    if (!entry.lastStudyDate && r.study_date) entry.lastStudyDate = r.study_date;
     if (r.concentration_level != null) {
       entry.concentrationSum += r.concentration_level;
       entry.concentrationCount += 1;
@@ -288,6 +298,11 @@ export async function generateAiFeedback(): Promise<AiFeedbackResponse> {
       highPriorityTaskCount: entry.highPriorityTaskCount,
       upcomingScheduleCount: entry.upcomingScheduleCount,
       nearestScheduleDays: entry.nearestScheduleDays,
+      daysSinceLastStudy: (() => {
+        if (!entry.lastStudyDate) return null;
+        const [y, m, d] = entry.lastStudyDate.split("-").map(Number);
+        return Math.round((todayMs - Date.UTC(y, m - 1, d)) / MS_PER_DAY);
+      })(),
       recentContents: entry.recentContents,
     };
   });
