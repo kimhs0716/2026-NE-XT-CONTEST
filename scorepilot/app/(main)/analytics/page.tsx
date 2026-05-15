@@ -4,6 +4,7 @@ import { formatSemester, type SemesterType } from "@/lib/constants/grades";
 import GradeChartWithFilter from "@/components/analytics/GradeChartWithFilter";
 import PredictionSection from "@/components/analytics/PredictionSection";
 import SubjectAnalysisCard from "@/components/analytics/SubjectAnalysisCard";
+import CategoryAnalysisCard from "@/components/analytics/CategoryAnalysisCard";
 import AiFeedbackCard from "@/components/analytics/AiFeedbackCard";
 import AnalysisModeSelect from "@/components/analytics/AnalysisModeSelect";
 import StudyLogForm from "@/components/analytics/StudyLogForm";
@@ -196,6 +197,71 @@ function buildGradeChartData(
 function subjectCategory(name: string): string {
   const idx = name.indexOf("(");
   return idx > 0 ? name.slice(0, idx) : name;
+}
+
+const RISK_ORDER: Record<string, number> = { insufficient: 0, low: 1, medium: 2, high: 3 };
+const RISK_FROM_ORDER = ["insufficient", "low", "medium", "high"] as const;
+
+function buildCategoryAnalysis(
+  analysisList: SubjectAnalysis[],
+  catMap: Record<string, string>,
+): SubjectAnalysis[] {
+  const grouped = new Map<string, SubjectAnalysis[]>();
+  for (const a of analysisList) {
+    const cat = catMap[a.metrics.subject] ?? a.metrics.subject;
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat)!.push(a);
+  }
+  return [...grouped.entries()]
+    .map(([cat, items]) => {
+      const avg =
+        Math.round((items.reduce((s, a) => s + a.metrics.average, 0) / items.length) * 10) / 10;
+      const latestScore =
+        Math.round(
+          (items.reduce((s, a) => s + a.metrics.latestScore, 0) / items.length) * 10,
+        ) / 10;
+      const deltas = items
+        .map((a) => a.metrics.recentDelta)
+        .filter((d): d is number => d !== null);
+      const recentDelta =
+        deltas.length > 0
+          ? Math.round((deltas.reduce((s, d) => s + d, 0) / deltas.length) * 10) / 10
+          : null;
+      const worstRiskIdx = Math.max(...items.map((a) => RISK_ORDER[a.risk.riskLevel] ?? 0));
+      const worstRisk = RISK_FROM_ORDER[worstRiskIdx];
+      const allReasons = [...new Set(items.flatMap((a) => a.risk.reasons))];
+      const bestPriority = Math.min(...items.map((a) => a.strategy.priority));
+      const bestStrategy = items.find((a) => a.strategy.priority === bestPriority)!.strategy;
+      return {
+        metrics: {
+          subject: cat,
+          count: items.reduce((s, a) => s + a.metrics.count, 0),
+          average: avg,
+          latestScore,
+          previousScore: null,
+          recentDelta,
+          trend:
+            recentDelta === null
+              ? ("new" as const)
+              : recentDelta > 0
+                ? ("up" as const)
+                : recentDelta < 0
+                  ? ("down" as const)
+                  : ("stable" as const),
+          volatility:
+            Math.round(
+              (items.reduce((s, a) => s + a.metrics.volatility, 0) / items.length) * 10,
+            ) / 10,
+        },
+        risk: { riskLevel: worstRisk, reasons: allReasons },
+        strategy: bestStrategy,
+      } satisfies SubjectAnalysis;
+    })
+    .sort(
+      (a, b) =>
+        a.strategy.priority - b.strategy.priority ||
+        a.metrics.subject.localeCompare(b.metrics.subject, "ko"),
+    );
 }
 
 function buildMockComparison(
@@ -413,6 +479,8 @@ export default async function AnalyticsPage() {
     validRows.filter((r) => r.semOrder === maxSemOrder).map((r) => r.subject),
   );
 
+  const categoryAnalysisList = buildCategoryAnalysis(subjectAnalysisList, categoryMap);
+
   // 최근 모의고사 과목
   const latestMockOrder =
     (mockRows ?? []).length > 0
@@ -566,14 +634,14 @@ export default async function AnalyticsPage() {
                 }
               />
             </div>
-            {subjectAnalysisList.length === 0 ? (
+            {categoryAnalysisList.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
                 성적을 등록하면 과목별 피드백이 표시됩니다.
               </p>
             ) : (
               <div className="space-y-3">
-                {subjectAnalysisList.map((analysis) => (
-                  <SubjectAnalysisCard
+                {categoryAnalysisList.map((analysis) => (
+                  <CategoryAnalysisCard
                     key={analysis.metrics.subject}
                     analysis={analysis}
                   />
