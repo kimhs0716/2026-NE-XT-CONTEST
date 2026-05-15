@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useState, startTransition } from "react";
+import { useActionState, useState, startTransition, useTransition } from "react";
 import Link from "next/link";
-import { login } from "@/lib/actions/auth";
+import { login, resetSession } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,8 @@ import {
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState(login, null);
+  const [resetPending, startResetTransition] = useTransition();
+  const [resetDone, setResetDone] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -57,6 +59,28 @@ export default function LoginPage() {
             {pending ? "로그인 중..." : "로그인"}
           </Button>
         </form>
+        <div className="mt-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            disabled={resetPending}
+            onClick={() => {
+              startResetTransition(async () => {
+                await resetSession();
+                setPassword("");
+                setResetDone(true);
+              });
+            }}
+          >
+            {resetPending ? "초기화 중..." : "세션 초기화"}
+          </Button>
+          {resetDone && (
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              세션을 초기화했습니다. 다시 로그인해주세요.
+            </p>
+          )}
+        </div>
         <p className="mt-4 text-center text-sm text-muted-foreground">
           계정이 없으신가요?{" "}
           <Link href="/signup" className="text-primary hover:underline">

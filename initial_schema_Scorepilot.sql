@@ -1,5 +1,24 @@
 /*Users 기본 정보 table
 비밀번호는 저장하지 않고 Supabase Auth가 관리함*/
+
+
+drop table if exists public.mock_exam_records cascade;
+drop table if exists public.admin_logs cascade;
+drop table if exists public.score_predictions cascade;
+drop table if exists public.learning_recommendations cascade;
+drop table if exists public.weakness_reports cascade;
+drop table if exists public.analysis_reports cascade;
+drop table if exists public.study_logs cascade;
+drop table if exists public.study_tasks cascade;
+drop table if exists public.schedules cascade;
+drop table if exists public.grade_records cascade;
+drop table if exists public.exams cascade;
+drop table if exists public.subject_goals cascade;
+drop table if exists public.subjects cascade;
+drop table if exists public.semesters cascade;
+drop table if exists public.user_roles cascade;
+drop table if exists public.profiles cascade;
+
 create table public.profiles (
   --auth.users.id와 연결되는 사용자 고유 ID
   id uuid primary key references auth.users(id) on delete cascade,
@@ -78,6 +97,9 @@ create table public.subjects (
   credit numeric(4,2) check (credit > 0),
   --과목 분류
   category text,
+  --평가 방식: relative=상대평가(고등 선택과목 5등급), absolute=절대평가(A/B/C)
+  --중학생 과목은 null (성취도 A~E 는 앱에서 점수 기준으로 계산)
+  evaluation_type text check (evaluation_type in ('relative', 'absolute')),
   --그래프,캘랜더 표시 색상
   color text,
   --표시 순서

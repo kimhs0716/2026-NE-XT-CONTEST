@@ -5,7 +5,7 @@ import { computeMetrics } from "@/lib/analytics/metrics";
 import { computeRisk } from "@/lib/analytics/risk";
 import { computeStrategy } from "@/lib/analytics/strategy";
 import { computePrediction } from "@/lib/analytics/prediction";
-import type { GradePoint, RiskLevel } from "@/lib/analytics/types";
+import type { GradePoint, RiskLevel, SubjectMetrics } from "@/lib/analytics/types";
 import { cn } from "@/lib/utils";
 import RecommendationTaskButton from "@/components/strategy/RecommendationTaskButton";
 import GenerateRecommendationsButton from "@/components/strategy/GenerateRecommendationsButton";
@@ -594,6 +594,205 @@ function getWeeklyPriorityLabel(priority: WeeklyPlanItem["priority"]): string {
   return "보통";
 }
 
+function subjectCategory(name: string): string {
+  const idx = name.indexOf("(");
+  return idx > 0 ? name.slice(0, idx) : name;
+}
+
+type CategoryInsight = {
+  category: string;
+  subjects: string[];
+  avgScore: number;
+  latestAvg: number;
+  recentDelta: number | null;
+  riskLevel: RiskLevel;
+  riskReason: string;
+  recommendedAction: string;
+  count: number;
+  trend: string;
+};
+
+type MockExamRow = {
+  exam_year: number;
+  exam_month: number;
+  subject: string;
+  raw_score: number | null;
+  percentile: number | null;
+  grade: number | null;
+  target_score: number | null;
+};
+
+type MockExamInsight = {
+  subject: string;
+  latestLabel: string;
+  latestScore: number | null;
+  averageScore: number | null;
+  latestGrade: number | null;
+  averageGrade: number | null;
+  percentile: number | null;
+  targetScore: number | null;
+  targetGap: number | null;
+  recentDelta: number | null;
+  count: number;
+  riskLevel: RiskLevel;
+  riskReason: string;
+  recommendedAction: string;
+  trend: string;
+};
+
+function buildCategoryInsights(insights: StrategyInsight[]): CategoryInsight[] {
+  const riskOrder: Record<RiskLevel, number> = { high: 0, medium: 1, low: 2, insufficient: 3 };
+  const groups = new Map<string, StrategyInsight[]>();
+  for (const insight of insights) {
+    const cat = subjectCategory(insight.subject);
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(insight);
+  }
+  return [...groups.entries()]
+    .map(([category, items]) => {
+      const sorted = [...items].sort((a, b) => riskOrder[a.riskLevel] - riskOrder[b.riskLevel]);
+      const worst = sorted[0];
+      const avgScore = items.reduce((sum, i) => sum + i.average, 0) / items.length;
+      const latestAvg = items.reduce((sum, i) => sum + i.latestScore, 0) / items.length;
+      const deltas = items.map((i) => i.recentDelta).filter((d): d is number => d !== null);
+      const recentDelta =
+        deltas.length > 0
+          ? Math.round((deltas.reduce((a, b) => a + b, 0) / deltas.length) * 10) / 10
+          : null;
+      return {
+        category,
+        subjects: items.map((i) => i.subject),
+        avgScore: Math.round(avgScore * 10) / 10,
+        latestAvg: Math.round(latestAvg * 10) / 10,
+        recentDelta,
+        riskLevel: worst.riskLevel,
+        riskReason: worst.riskReason,
+        recommendedAction: worst.recommendedAction,
+        count: items.reduce((sum, i) => sum + i.count, 0),
+        trend: worst.trend,
+      };
+    })
+    .sort((a, b) => riskOrder[a.riskLevel] - riskOrder[b.riskLevel] || a.avgScore - b.avgScore);
+}
+
+function scoreAverage(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+}
+
+function buildMockExamAction(params: {
+  subject: string;
+  riskLevel: RiskLevel;
+  recentDelta: number | null;
+  targetGap: number | null;
+  latestGrade: number | null;
+}): string {
+  const { subject, riskLevel, recentDelta, targetGap, latestGrade } = params;
+
+  if (targetGap !== null && targetGap <= -10) {
+    return `${subject} 목표까지 ${Math.abs(targetGap)}점 남았습니다. 오답 유형 2개를 골라 기출 10문항으로 바로 보강하세요.`;
+  }
+
+  if (recentDelta !== null && recentDelta <= -5) {
+    return `${subject} 최근 점수가 내려갔습니다. 직전 시험 오답을 단원별로 나누고 하락 단원부터 다시 풀어보세요.`;
+  }
+
+  if (latestGrade !== null && latestGrade >= 5) {
+    return `${subject} 기본 개념 빈칸을 먼저 줄여야 합니다. 개념 확인 20분 후 쉬운 문항부터 정확도를 회복하세요.`;
+  }
+
+  if (riskLevel === "medium") {
+    return `${subject} 등급을 끌어올릴 여지가 있습니다. 실수 문항과 시간 부족 문항을 분리해 반복하세요.`;
+  }
+
+  if (riskLevel === "low") {
+    return `${subject}는 현재 안정권입니다. 주 1회 실전 세트로 감각을 유지하고 고난도만 선별하세요.`;
+  }
+
+  return `${subject} 기록을 한 번 더 추가하면 추세까지 반영한 전략을 만들 수 있습니다.`;
+}
+
+function buildMockExamInsights(rows: MockExamRow[]): MockExamInsight[] {
+  const riskOrder: Record<RiskLevel, number> = { high: 0, medium: 1, low: 2, insufficient: 3 };
+  const groups = new Map<string, MockExamRow[]>();
+
+  for (const row of rows) {
+    if (!groups.has(row.subject)) groups.set(row.subject, []);
+    groups.get(row.subject)!.push(row);
+  }
+
+  return [...groups.entries()]
+    .map(([subject, items]) => {
+      const sorted = [...items].sort(
+        (a, b) => a.exam_year * 100 + a.exam_month - (b.exam_year * 100 + b.exam_month),
+      );
+      const latest = sorted[sorted.length - 1];
+      const rawScores = sorted.map((row) => row.raw_score).filter((score): score is number => score != null);
+      const grades = sorted.map((row) => row.grade).filter((grade): grade is number => grade != null);
+      const latestScore = latest.raw_score;
+      const latestGrade = latest.grade;
+      const previousScore = rawScores.length > 1 ? rawScores[rawScores.length - 2] : null;
+      const recentDelta =
+        latestScore !== null && previousScore !== null
+          ? Math.round((latestScore - previousScore) * 10) / 10
+          : null;
+      const targetGap =
+        latestScore !== null && latest.target_score !== null
+          ? Math.round((latestScore - latest.target_score) * 10) / 10
+          : null;
+
+      let trend: SubjectMetrics["trend"] = "new";
+      if (recentDelta !== null) {
+        if (recentDelta > 3) trend = "up";
+        else if (recentDelta < -3) trend = "down";
+        else trend = "stable";
+      }
+
+      const riskLevel: RiskLevel =
+        latestGrade == null && latestScore == null
+          ? "insufficient"
+          : (latestGrade != null && latestGrade >= 5) || (targetGap != null && targetGap <= -10)
+            ? "high"
+            : (latestGrade != null && latestGrade >= 3) || (targetGap != null && targetGap < 0) || (recentDelta != null && recentDelta <= -5)
+              ? "medium"
+              : "low";
+
+      const riskReason = (() => {
+        if (riskLevel === "insufficient") return "원점수나 등급 기록이 더 필요합니다.";
+        if (targetGap !== null && targetGap < 0) return `목표 점수보다 ${Math.abs(targetGap)}점 낮습니다.`;
+        if (recentDelta !== null && recentDelta < 0) return `직전 기록보다 ${Math.abs(recentDelta)}점 하락했습니다.`;
+        if (latestGrade !== null && latestGrade >= 5) return `${latestGrade}등급 구간이라 기본 개념 보강이 우선입니다.`;
+        if (latestGrade !== null && latestGrade >= 3) return `${latestGrade}등급 구간에서 한 단계 상승 여지가 있습니다.`;
+        return "최근 기록이 목표권에 있어 실전 감각 유지가 중요합니다.";
+      })();
+
+      return {
+        subject,
+        latestLabel: `${latest.exam_year}년 ${latest.exam_month}월`,
+        latestScore,
+        averageScore: scoreAverage(rawScores),
+        latestGrade,
+        averageGrade: scoreAverage(grades),
+        percentile: latest.percentile,
+        targetScore: latest.target_score,
+        targetGap,
+        recentDelta,
+        count: rawScores.length || grades.length,
+        riskLevel,
+        riskReason,
+        recommendedAction: buildMockExamAction({ subject, riskLevel, recentDelta, targetGap, latestGrade }),
+        trend,
+      };
+    })
+    .sort(
+      (a, b) =>
+        riskOrder[a.riskLevel] - riskOrder[b.riskLevel] ||
+        (b.latestGrade ?? 0) - (a.latestGrade ?? 0) ||
+        (a.targetGap ?? 99) - (b.targetGap ?? 99) ||
+        a.subject.localeCompare(b.subject, "ko"),
+    );
+}
+
 function buildMockWeakSubjectSet(
   rows: {
     exam_year: number;
@@ -684,7 +883,7 @@ export default async function StrategyPage() {
       .limit(6),
     supabase
       .from("mock_exam_records")
-      .select("exam_year, exam_month, subject, raw_score, grade, target_score")
+      .select("exam_year, exam_month, subject, raw_score, percentile, grade, target_score")
       .eq("user_id", user.id)
       .order("exam_year", { ascending: false })
       .order("exam_month", { ascending: false })
@@ -706,7 +905,20 @@ export default async function StrategyPage() {
       ? Math.round((insights.reduce((sum, item) => sum + item.average, 0) / totalSubjects) * 10) / 10
       : null;
 
-  const topPriority = insights[0] ?? null;
+  const categoryInsights = buildCategoryInsights(insights);
+  const topCategoryInsight = categoryInsights[0] ?? null;
+
+  const allMockRows = (mockExamRows ?? []) as MockExamRow[];
+  const mockExamInsights = buildMockExamInsights(allMockRows);
+  const latestMockRow =
+    allMockRows.length > 0
+      ? allMockRows.reduce(
+          (best, row) =>
+            row.exam_year * 100 + row.exam_month > best.exam_year * 100 + best.exam_month ? row : best,
+          allMockRows[0],
+        )
+      : null;
+  const latestMockLabel = latestMockRow ? `${latestMockRow.exam_year}년 ${latestMockRow.exam_month}월` : "";
 
   const studyLogs = (studyLogRows ?? []) as StudyLogRow[];
   const studyTasks = (studyTaskRows ?? []) as StudyTaskRow[];
@@ -776,7 +988,7 @@ export default async function StrategyPage() {
         </p>
       </div>
 
-      {insights.length === 0 ? (
+      {insights.length === 0 && mockExamInsights.length === 0 ? (
         <div className="rounded-2xl border bg-white p-12 text-center text-muted-foreground text-sm">
           성적을 등록하면 과목별 실행 계획이 자동으로 만들어집니다.
         </div>
@@ -806,68 +1018,144 @@ export default async function StrategyPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-6 space-y-4">
+            <div className="rounded-2xl border bg-white p-6 space-y-5">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
-                  <h2 className="text-base font-semibold">과목별 우선순위</h2>
+                  <h2 className="text-base font-semibold">우선순위</h2>
                   <p className="text-sm text-muted-foreground mt-1">
                     평균과 최근 흐름을 함께 반영한 실행 순서입니다.
                   </p>
                 </div>
-                {topPriority && (
-                  <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium", riskConfig[topPriority.riskLevel].cls)}>
-                    지금 가장 먼저 볼 과목: {topPriority.subject}
+                {topCategoryInsight && (
+                  <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium", riskConfig[topCategoryInsight.riskLevel].cls)}>
+                    지금 가장 먼저 볼 분류: {topCategoryInsight.category}
                   </span>
                 )}
               </div>
 
-              <div className="space-y-3">
-                {insights.map((item) => {
-                  const trend = trendConfig[item.trend] ?? trendConfig.new;
-                  return (
-                    <div key={item.subject} className="rounded-xl border p-4 bg-muted/20">
-                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-2 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold", subjectBadgeClass(item.subject))}>
-                              {item.subject}
-                            </span>
-                            <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", riskConfig[item.riskLevel].cls)}>
-                              {riskConfig[item.riskLevel].label}
-                            </span>
-                            <span className={cn("text-xs font-semibold", trend.cls)}>
-                              {trend.icon} {trend.label}
-                            </span>
+              {/* 내신 */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-3">내신</p>
+                <div className="space-y-3">
+                  {categoryInsights.map((item) => {
+                    const trend = trendConfig[item.trend] ?? trendConfig.new;
+                    return (
+                      <div key={item.category} className="rounded-xl border p-4 bg-muted/20">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="space-y-2 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold", subjectBadgeClass(item.category))}>
+                                {item.category}
+                              </span>
+                              <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", riskConfig[item.riskLevel].cls)}>
+                                {riskConfig[item.riskLevel].label}
+                              </span>
+                              <span className={cn("text-xs font-semibold", trend.cls)}>
+                                {trend.icon} {trend.label}
+                              </span>
+                              {item.subjects.length > 1 && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  {item.subjects.join(" · ")}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium text-foreground">{item.recommendedAction}</p>
+                            <p className="text-xs text-muted-foreground">
+                              최근 변화 {formatDelta(item.recentDelta)} · 기록 {item.count}회
+                            </p>
                           </div>
-                          <p className="text-sm font-medium text-foreground">{item.recommendedAction}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.latestSemester} 기준 · 최근 변화 {formatDelta(item.recentDelta)} · 기록 {item.count}회 · 변동성 {item.volatility}점
-                          </p>
+                          <div className="grid grid-cols-2 gap-3 text-center shrink-0">
+                            <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
+                              <p className="text-[10px] text-muted-foreground">평균</p>
+                              <p className="font-bold">{item.avgScore}점</p>
+                            </div>
+                            <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
+                              <p className="text-[10px] text-muted-foreground">최근 점수</p>
+                              <p className="font-bold">{item.latestAvg}점</p>
+                            </div>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-3 text-center shrink-0">
-                          <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
-                            <p className="text-[10px] text-muted-foreground">평균</p>
-                            <p className="font-bold">{item.average}점</p>
+                        {item.riskReason && (
+                          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-muted-foreground border">
+                            {item.riskReason}
                           </div>
-                          <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
-                            <p className="text-[10px] text-muted-foreground">최근 점수</p>
-                            <p className="font-bold">{item.latestScore}점</p>
-                          </div>
-                          <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
-                            <p className="text-[10px] text-muted-foreground">예측</p>
-                            <p className="font-bold">{item.predictedScore != null ? `${item.predictedScore}점` : "-"}</p>
-                          </div>
-                        </div>
+                        )}
                       </div>
-                      {(item.basis || item.riskReason) && (
-                        <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-muted-foreground border">
-                          {item.riskReason || "아직 판단할 기록이 부족합니다"}{item.basis ? ` · ${item.basis}` : ""}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
+
+              {/* 모의고사 */}
+              {mockExamInsights.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <p className="text-xs font-semibold text-muted-foreground">모의고사</p>
+                    <span className="text-xs text-muted-foreground">· 최근 기준 {latestMockLabel}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {mockExamInsights.map((item) => {
+                      const trend = trendConfig[item.trend] ?? trendConfig.new;
+                      return (
+                        <div key={item.subject} className="rounded-xl border p-4 bg-muted/20">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="space-y-2 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold", subjectBadgeClass(item.subject))}>
+                                  {item.subject}
+                                </span>
+                                <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", riskConfig[item.riskLevel].cls)}>
+                                  {riskConfig[item.riskLevel].label}
+                                </span>
+                                <span className={cn("text-xs font-semibold", trend.cls)}>
+                                  {trend.icon} {trend.label}
+                                </span>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {item.latestLabel} · 기록 {item.count}회
+                                </span>
+                              </div>
+                              <p className="text-sm font-medium text-foreground">{item.recommendedAction}</p>
+                              <p className="text-xs text-muted-foreground">
+                                최근 변화 {formatDelta(item.recentDelta)}
+                                {item.targetGap !== null && item.targetScore !== null && (
+                                  <>
+                                    {" "}· 목표 {item.targetScore}점 대비{" "}
+                                    <span className={item.targetGap >= 0 ? "text-green-600 font-medium" : "text-red-500 font-medium"}>
+                                      {formatDelta(item.targetGap)}
+                                    </span>
+                                  </>
+                                )}
+                                {item.percentile !== null && <> · 백분위 {item.percentile}</>}
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-center shrink-0">
+                              <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
+                                <p className="text-[10px] text-muted-foreground">최근 원점수</p>
+                                <p className="font-bold">{item.latestScore != null ? `${item.latestScore}점` : "-"}</p>
+                              </div>
+                              <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
+                                <p className="text-[10px] text-muted-foreground">최근 등급</p>
+                                <p className="font-bold">{item.latestGrade != null ? `${item.latestGrade}등급` : "-"}</p>
+                              </div>
+                              <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
+                                <p className="text-[10px] text-muted-foreground">평균 원점수</p>
+                                <p className="font-bold">{item.averageScore != null ? `${item.averageScore}점` : "-"}</p>
+                              </div>
+                              <div className="rounded-lg bg-white px-3 py-2 border min-w-[82px]">
+                                <p className="text-[10px] text-muted-foreground">평균 등급</p>
+                                <p className="font-bold">{item.averageGrade != null ? `${item.averageGrade}등급` : "-"}</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-muted-foreground border">
+                            {item.riskReason}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-2xl border bg-white p-6 space-y-4 shadow-sm">

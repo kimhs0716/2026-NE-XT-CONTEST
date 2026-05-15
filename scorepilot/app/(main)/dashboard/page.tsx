@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { type SemesterType } from "@/lib/constants/grades";
+import DashboardCalendar from "@/components/dashboard/DashboardCalendar";
 
 type ExamRow = {
   exam_type: string;
@@ -113,6 +114,12 @@ export default async function DashboardPage() {
   const twoWeeksLater = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
+  const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const sixMonthsLater = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
   const currentSemType: SemesterType =
     now.getMonth() + 1 >= 3 && now.getMonth() + 1 <= 8
       ? "semester_1"
@@ -148,10 +155,9 @@ export default async function DashboardPage() {
         .select("id, title, event_type, start_date, subjects(name)")
         .eq("user_id", user.id)
         .eq("is_completed", false)
-        .gte("start_date", today)
-        .lte("start_date", twoWeeksLater)
-        .order("start_date")
-        .limit(10),
+        .gte("start_date", sixMonthsAgo)
+        .lte("start_date", sixMonthsLater)
+        .order("start_date"),
       supabase
         .from("study_tasks")
         .select("id, title, due_date, priority, subjects(name)")
@@ -200,16 +206,11 @@ export default async function DashboardPage() {
       ? Math.round((mockGrades.reduce((a, b) => a + b, 0) / mockGrades.length) * 10) / 10
       : null;
 
-  const upcoming = (scheduleRows as ScheduleRow[] ?? []);
+  const allSchedules = (scheduleRows as ScheduleRow[] ?? []);
+  const upcoming = allSchedules
+    .filter((s) => s.start_date >= today && s.start_date <= twoWeeksLater)
+    .slice(0, 10);
   const studyTasks = (taskRows as StudyTaskRow[] ?? []);
-
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
-  const cells: (number | null)[] = Array(firstDay).fill(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-  const weeks: (number | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-4">
@@ -224,57 +225,17 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-6">
         {/* 왼쪽: 캘린더 */}
-        <div className="rounded-2xl border bg-white p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg">캘린더</h2>
-            <Link href="/calendar" className="text-xs text-primary hover:underline">
-              전체 보기 →
-            </Link>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">{now.getFullYear()}년 {now.getMonth() + 1}월</span>
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
-                <div key={d} className="text-xs font-medium text-muted-foreground py-1 text-center">
-                  {d}
-                </div>
-              ))}
-              {weeks.map((week, rowIdx) =>
-                week.map((day, colIdx) => {
-                  const dateStr = day ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` : null;
-                  const dayEvents = dateStr ? upcoming.filter(s => s.start_date === dateStr) : [];
-                  return (
-                    <div
-                      key={`${rowIdx}-${colIdx}`}
-                      className="min-h-[80px] border rounded p-1 flex flex-col gap-1"
-                    >
-                      <div className="text-xs font-medium text-foreground">
-                        {day ?? ""}
-                      </div>
-                      <div className="flex-1 flex flex-col gap-0.5 text-[10px] min-h-0 overflow-hidden">
-                        {dayEvents.slice(0, 2).map((s, i) => (
-                          <div
-                            key={i}
-                            className={`truncate px-1 py-0.5 rounded ${EVENT_TYPE_COLOR[s.event_type] ?? EVENT_TYPE_COLOR.other}`}
-                          >
-                            {s.title}
-                          </div>
-                        ))}
-                        {dayEvents.length > 2 && (
-                          <div className="text-muted-foreground px-1">
-                            +{dayEvents.length - 2}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
+        <DashboardCalendar
+          schedules={allSchedules.map((s) => ({
+            id: s.id,
+            title: s.title,
+            event_type: s.event_type,
+            start_date: s.start_date,
+          }))}
+          initialYear={now.getFullYear()}
+          initialMonth={now.getMonth()}
+          todayStr={today}
+        />
 
         {/* 오른쪽: 네비게이션 카드들 */}
         <div className="space-y-4">

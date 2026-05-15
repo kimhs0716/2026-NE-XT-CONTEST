@@ -32,11 +32,14 @@ export async function addGrade(_: unknown, formData: FormData) {
     const score = parseFloat(formData.get("score") as string);
     const maxScore = parseFloat(formData.get("max_score") as string) || 100;
     const memo = (formData.get("memo") as string) || null;
+    const weightStr = formData.get("weight") as string;
+    const weight = weightStr ? parseFloat(weightStr) : null;
 
     if (!subjectName) return { error: "과목명을 입력해주세요." };
     if (!semesterYear || !semesterType) return { error: "학기를 선택해주세요." };
     if (isNaN(score) || score < 0) return { error: "올바른 점수를 입력해주세요." };
     if (score > maxScore) return { error: "점수가 만점보다 클 수 없습니다." };
+    if (weight !== null && (weight < 0 || weight > 100)) return { error: "반영비는 0~100 사이여야 합니다." };
 
     // 학기 찾기 또는 생성
     const { data: existingSem } = await supabase
@@ -60,13 +63,13 @@ export async function addGrade(_: unknown, formData: FormData) {
       semesterId = newSem.id;
     }
 
-    // 과목 찾기 또는 생성
+    // 과목 찾기 또는 생성 — 과목명 단위로 1개만 유지
     const { data: existingSub } = await supabase
       .from("subjects")
       .select("id")
       .eq("user_id", user.id)
-      .eq("semester_id", semesterId)
       .eq("name", subjectName)
+      .limit(1)
       .single();
 
     let subjectId: string;
@@ -103,6 +106,7 @@ export async function addGrade(_: unknown, formData: FormData) {
         title: `${subjectName} ${examTypeLabels[examType]}`,
         exam_type: examType,
         max_score: maxScore,
+        weight,
       })
       .select("id")
       .single();
@@ -141,11 +145,14 @@ export async function updateGrade(_: unknown, formData: FormData) {
     const score = parseFloat(formData.get("score") as string);
     const maxScore = parseFloat(formData.get("max_score") as string) || 100;
     const memo = (formData.get("memo") as string) || null;
+    const weightStr = formData.get("weight") as string;
+    const weight = weightStr ? parseFloat(weightStr) : null;
 
     if (!subjectName) return { error: "과목명을 입력해주세요." };
     if (!semesterYear || !semesterType) return { error: "학기를 선택해주세요." };
     if (isNaN(score) || score < 0) return { error: "올바른 점수를 입력해주세요." };
     if (score > maxScore) return { error: "점수가 만점보다 클 수 없습니다." };
+    if (weight !== null && (weight < 0 || weight > 100)) return { error: "반영비는 0~100 사이여야 합니다." };
 
     const { data: existingSem } = await supabase
       .from("semesters")
@@ -168,12 +175,13 @@ export async function updateGrade(_: unknown, formData: FormData) {
       semesterId = newSem.id;
     }
 
+    // 과목 찾기 또는 생성 — 과목명 단위로 1개만 유지
     const { data: existingSub } = await supabase
       .from("subjects")
       .select("id")
       .eq("user_id", user.id)
-      .eq("semester_id", semesterId)
       .eq("name", subjectName)
+      .limit(1)
       .single();
 
     let subjectId: string;
@@ -197,6 +205,7 @@ export async function updateGrade(_: unknown, formData: FormData) {
         title: `${subjectName} ${examTypeLabels[examType]}`,
         exam_type: examType,
         max_score: maxScore,
+        weight,
       })
       .eq("id", examId)
       .eq("user_id", user.id);
@@ -213,6 +222,47 @@ export async function updateGrade(_: unknown, formData: FormData) {
     return { success: true };
   } catch (e) {
     console.error("[updateGrade]", e);
+    return { error: "알 수 없는 오류가 발생했습니다." };
+  }
+}
+
+export async function updateSemesterGrade(examId: string, gradeLevel: string | null) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "로그인이 필요합니다." };
+
+    const { data: exam } = await supabase
+      .from("exams")
+      .select("subject_id, exam_semester, subjects ( name )")
+      .eq("id", examId)
+      .eq("user_id", user.id)
+      .single();
+    if (!exam) return { error: "시험 정보를 찾을 수 없습니다." };
+
+    const subjects = exam.subjects as { name: string } | { name: string }[] | null | undefined;
+    const subjectName = Array.isArray(subjects) ? subjects[0]?.name : subjects?.name;
+
+    const { data: semExams } = await supabase
+      .from("exams")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("subject_id", exam.subject_id)
+      .eq("exam_semester", exam.exam_semester);
+
+    if (!semExams?.length) return { error: "학기 시험 정보를 찾을 수 없습니다." };
+
+    const { error } = await supabase
+      .from("grade_records")
+      .update({ grade_level: gradeLevel || null })
+      .in("exam_id", semExams.map((e) => e.id))
+      .eq("user_id", user.id);
+    if (error) return { error: "등급 수정 중 오류가 발생했습니다." };
+
+    revalidateGradeViews(subjectName);
+    return { success: true };
+  } catch (e) {
+    console.error("[updateSemesterGrade]", e);
     return { error: "알 수 없는 오류가 발생했습니다." };
   }
 }

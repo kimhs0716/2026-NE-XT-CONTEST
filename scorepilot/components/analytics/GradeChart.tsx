@@ -22,12 +22,15 @@ function ChartTooltip({
   active,
   payload,
   label,
+  mode,
 }: {
   active?: boolean;
   payload?: TooltipEntry[];
   label?: string;
+  mode: "grade" | "score";
 }) {
   if (!active || !payload?.length) return null;
+  const unit = mode === "grade" ? "등급" : "점";
   const subjectEntries = payload.filter(
     (e) => e.name !== "전체 평균" && e.value != null,
   );
@@ -43,7 +46,7 @@ function ChartTooltip({
           />
           <span className="text-muted-foreground">{entry.name}</span>
           <span className="ml-auto font-medium pl-4">
-            {Number(entry.value).toFixed(1)}점
+            {Number(entry.value).toFixed(1)}{unit}
           </span>
         </div>
       ))}
@@ -51,7 +54,7 @@ function ChartTooltip({
         <div className="flex items-center gap-2 pt-1.5 mt-1 border-t">
           <span className="text-muted-foreground">전체 평균</span>
           <span className="ml-auto font-medium pl-4">
-            {Number(avg.value).toFixed(1)}점
+            {Number(avg.value).toFixed(1)}{unit}
           </span>
         </div>
       )}
@@ -64,16 +67,21 @@ type DataPoint = Record<string, string | number | null>;
 type Props = {
   data: DataPoint[];
   subjects: string[];
+  mode?: "grade" | "score";
 };
 
-export default function GradeChart({ data, subjects }: Props) {
+export default function GradeChart({ data, subjects, mode = "grade" }: Props) {
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
-        성적을 입력하면 추이 그래프가 표시됩니다
+        {mode === "grade"
+          ? "성적과 등급을 입력하면 추이 그래프가 표시됩니다"
+          : "성적을 입력하면 추이 그래프가 표시됩니다"}
       </div>
     );
   }
+
+  const isGrade = mode === "grade";
 
   return (
     <div className="w-full">
@@ -89,12 +97,14 @@ export default function GradeChart({ data, subjects }: Props) {
           padding={{ left: 20, right: 20 }}
         />
         <YAxis
-          domain={[0, 100]}
+          domain={isGrade ? [1, 9] : [0, 100]}
+          reversed={isGrade}
+          ticks={isGrade ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [0, 25, 50, 75, 100]}
           tick={{ fontSize: 12 }}
-          tickFormatter={(v) => `${v}점`}
-          width={48}
+          tickFormatter={(v) => isGrade ? `${v}등급` : `${v}점`}
+          width={52}
         />
-        <Tooltip content={<ChartTooltip />} />
+        <Tooltip content={<ChartTooltip mode={mode} />} />
         <Legend />
         {subjects.map((subject, i) => (
           <Line

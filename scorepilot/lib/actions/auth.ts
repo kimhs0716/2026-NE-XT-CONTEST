@@ -26,16 +26,27 @@ function translateError(message: string): string {
 
 export async function login(_: unknown, formData: FormData) {
   const supabase = await createClient();
+  const email = ((formData.get("email") as string | null) ?? "").trim();
+  const password = (formData.get("password") as string | null) ?? "";
+
+  await supabase.auth.signOut();
 
   const { error } = await supabase.auth.signInWithPassword({
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
+    email,
+    password,
   });
 
   if (error) return { error: translateError(error.message) };
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
+}
+
+export async function resetSession() {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  revalidatePath("/", "layout");
+  return { success: true };
 }
 
 export async function signup(_: unknown, formData: FormData) {

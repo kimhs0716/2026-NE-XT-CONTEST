@@ -81,4 +81,4 @@ desktop.ini
 !Scorepilot_logo.png
 *.txt
 *.docx
-!public/**
+!scorepilot/public/**

@@ -1,26 +1,28 @@
 "use client";
 
 import { useState, useTransition, useActionState, startTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { upsertMockExamRecord, deleteMockExamRecord } from "@/lib/actions/mock-exam";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  calcMockExamRelativeGrade,
+  calcMockExamEnglishGrade,
+  calcMockExamHistoryGrade,
+  MOCK_RELATIVE_SUBJECTS,
+  MOCK_HISTORY_SUBJECTS,
+} from "@/lib/constants/grades";
 
 export type MockExamRecord = {
   id: string;
@@ -33,7 +35,11 @@ export type MockExamRecord = {
   target_score: number | null;
 };
 
-const SUBJECTS = ["국어", "수학", "영어", "한국사", "탐구1", "탐구2", "제2외국어"];
+// 탐구 카테고리: 세부 과목명을 별도 입력받는 카테고리
+const TANGU_CATEGORIES = ["탐구1", "탐구2"];
+
+// 드롭다운에 표시되는 과목 카테고리 목록
+const SUBJECT_CATEGORIES = ["국어", "수학", "영어", "한국사", "탐구1", "탐구2", "제2외국어"];
 const MONTHS = [3, 4, 5, 6, 7, 9, 10, 11];
 
 const GRADE_COLOR: Record<number, string> = {
@@ -48,7 +54,71 @@ const GRADE_COLOR: Record<number, string> = {
   9: "text-red-600",
 };
 
-function GradeDonut({ grade, subject }: { grade: number | null; subject: string }) {
+const MAX_SCORE_BY_CATEGORY: Record<string, number> = {
+  "한국사": 50,
+  "탐구1": 50,
+  "탐구2": 50,
+  "제2외국어": 50,
+};
+
+function getMaxScore(category: string): number {
+  return MAX_SCORE_BY_CATEGORY[category] ?? 100;
+}
+
+function rawScoreColor(score: number, maxScore: number): string {
+  const pct = (score / maxScore) * 100;
+  if (pct >= 80) return "#16a34a";
+  if (pct >= 60) return "#2563eb";
+  if (pct >= 40) return "#ca8a04";
+  return "#dc2626";
+}
+
+/** "탐구1(생명과학I)" → "탐구1" */
+function getSubjectCategory(subject: string): string {
+  for (const cat of TANGU_CATEGORIES) {
+    if (subject === cat || subject.startsWith(`${cat}(`)) return cat;
+  }
+  return subject;
+}
+
+/** "탐구1(생명과학I)" → "생명과학I", "탐구1" → "" */
+function getSubjectDetail(subject: string): string {
+  const match = subject.match(/^탐구[12]\((.+)\)$/);
+  return match ? match[1] : "";
+}
+
+/** 카테고리 + 세부명 → 저장할 과목 문자열 */
+function buildSubjectKey(category: string, detail: string): string {
+  const trimmed = detail.trim();
+  if (TANGU_CATEGORIES.includes(category) && trimmed) {
+    return `${category}(${trimmed})`;
+  }
+  return category;
+}
+
+/** 화면 표시용 과목명: "탐구1(생명과학I)" → "생명과학I", 나머지 → 그대로 */
+function getDisplayName(subject: string): string {
+  const detail = getSubjectDetail(subject);
+  return detail || subject;
+}
+
+function autoCalcGrade(category: string, rawScore: string, percentile: string): number | null {
+  const raw = rawScore ? parseFloat(rawScore) : null;
+  const pct = percentile ? parseFloat(percentile) : null;
+
+  if (MOCK_RELATIVE_SUBJECTS.includes(category) && pct != null && !isNaN(pct)) {
+    return calcMockExamRelativeGrade(pct);
+  }
+  if (category === "영어" && raw != null && !isNaN(raw)) {
+    return calcMockExamEnglishGrade(raw);
+  }
+  if (MOCK_HISTORY_SUBJECTS.includes(category) && raw != null && !isNaN(raw)) {
+    return calcMockExamHistoryGrade(raw);
+  }
+  return null;
+}
+
+function GradeDonut({ grade, label }: { grade: number | null; label: string }) {
   const radius = 28;
   const circ = 2 * Math.PI * radius;
   const fraction = grade != null ? Math.max(0, Math.min(1, (10 - grade) / 9)) : 0;
@@ -80,95 +150,253 @@ function GradeDonut({ grade, subject }: { grade: number | null; subject: string 
           {grade != null ? grade : "-"}
         </text>
       </svg>
-      <span className="text-xs font-medium text-muted-foreground">{subject}</span>
+      <span className="text-xs font-medium text-muted-foreground text-center leading-tight max-w-[72px] break-words">
+        {label}
+      </span>
       {grade != null && <span className="text-xs font-bold" style={{ color }}>{grade}등급</span>}
     </div>
   );
 }
 
-function RecordEditDialog({
+function MockExamTableRow({
   record,
+  category,
   examYear,
   examMonth,
-  onClose,
+  isEditing,
+  onEdit,
+  onCancel,
+  onSaved,
+  onDelete,
+  deletePending,
+  maxScore,
 }: {
   record: MockExamRecord | null;
+  category: string;
   examYear: number;
   examMonth: number;
-  onClose: () => void;
+  isEditing: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSaved: () => void;
+  onDelete: () => void;
+  deletePending: boolean;
+  maxScore: number;
 }) {
   const [state, action, pending] = useActionState(upsertMockExamRecord, null);
-  const [subject, setSubject] = useState(record?.subject ?? SUBJECTS[0]);
-  const [open, setOpen] = useState(true);
+
+  // 탐구 세부 과목명
+  const [tangDetail, setTangDetail] = useState(
+    record ? getSubjectDetail(record.subject) : ""
+  );
+
+  const [rawScore, setRawScore] = useState(record?.raw_score != null ? String(record.raw_score) : "");
+  const [percentile, setPercentile] = useState(record?.percentile != null ? String(record.percentile) : "");
+  const [grade, setGrade] = useState(record?.grade != null ? String(record.grade) : "");
+
+  const isTangu = TANGU_CATEGORIES.includes(category);
+  const fullSubject = buildSubjectKey(category, tangDetail);
+  const originalSubject = record?.subject ?? "";
+
+  // 과목/점수/백분위 변경 시 등급 자동 계산
+  useEffect(() => {
+    const calc = autoCalcGrade(category, rawScore, percentile);
+    if (calc !== null) setGrade(String(calc));
+  }, [category, rawScore, percentile]);
 
   useEffect(() => {
-    if (state?.success) { setOpen(false); onClose(); }
-  }, [state, onClose]);
+    if (state?.success) onSaved();
+  }, [state, onSaved]);
+
+  const isRelative = MOCK_RELATIVE_SUBJECTS.includes(category);
+  const isEnglish = category === "영어";
+  const isHistory = MOCK_HISTORY_SUBJECTS.includes(category);
+
+  let gradeHint = "";
+  if (isRelative) gradeHint = "백분위 입력 시 자동 계산";
+  else if (isEnglish) gradeHint = "원점수 기준: 90/80/70/60/50/40/30/20";
+  else if (isHistory) gradeHint = "원점수 기준: 40/35/30/25/20/15/10/5";
+
+  if (!isEditing) {
+    const label = record && isTangu ? getDisplayName(record.subject) : category;
+
+    return (
+      <tr className="border-b last:border-0">
+        <td className="py-2.5 font-medium">
+          {label}
+          {isTangu && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              ({category})
+            </span>
+          )}
+        </td>
+        <td
+          className="py-2.5 text-right font-medium"
+          style={record?.raw_score != null ? { color: rawScoreColor(record.raw_score, maxScore) } : undefined}
+        >
+          {record?.raw_score ?? "-"}
+        </td>
+        <td className="py-2.5 text-right">{record?.percentile != null ? `${record.percentile}%` : "-"}</td>
+        <td className={`py-2.5 text-right font-semibold ${record?.grade != null ? (GRADE_COLOR[record.grade] ?? "") : "text-muted-foreground"}`}>
+          {record?.grade != null ? `${record.grade}등급` : "-"}
+        </td>
+        <td className="py-2.5 text-right text-muted-foreground">
+          {record?.target_score != null ? (
+            <span className={record.raw_score != null && record.raw_score >= record.target_score ? "text-green-600" : "text-yellow-600"}>
+              {record.target_score}
+            </span>
+          ) : "-"}
+        </td>
+        <td className="py-2.5 text-right">
+          <div className="flex items-center justify-end gap-1">
+            <Button variant="ghost" size="sm" onClick={onEdit}>
+              {record ? "성적 수정" : "성적 입력"}
+            </Button>
+            {record && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={deletePending}
+                className="text-red-500 hover:text-red-600"
+                onClick={onDelete}
+              >
+                삭제
+              </Button>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { setOpen(false); onClose(); } }}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{record ? "성적 수정" : "성적 입력"}</DialogTitle>
-        </DialogHeader>
+    <tr className="border-b last:border-0 bg-muted/20 align-top">
+      <td className="py-2.5">
         <form
+          id={`mock-exam-form-${category}`}
           onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }}
-          className="space-y-4 mt-2"
         >
           <input type="hidden" name="exam_year" value={examYear} />
           <input type="hidden" name="exam_month" value={examMonth} />
-          <div className="space-y-2">
-            <Label>과목</Label>
-            <select
-              name="subject"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring"
-            >
-              {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+          <input type="hidden" name="subject" value={fullSubject} />
+          <input type="hidden" name="original_subject" value={originalSubject} />
+          <input type="hidden" name="grade" value={grade} />
+          <div className="space-y-1">
+            <Label className="text-xs">{category}</Label>
+            {isTangu ? (
+              <Input
+                placeholder="세부 과목명"
+                value={tangDetail}
+                onChange={(e) => setTangDetail(e.target.value)}
+              />
+            ) : (
+              <p className="h-8 rounded-lg border border-transparent px-2.5 py-1.5 text-sm font-medium">
+                {category}
+              </p>
+            )}
+            {state?.error && <p className="text-xs text-red-500">{state.error}</p>}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>원점수</Label>
-              <Input name="raw_score" type="number" min="0" max="100" defaultValue={record?.raw_score ?? ""} placeholder="0–100" />
-            </div>
-            <div className="space-y-2">
-              <Label>목표점수</Label>
-              <Input name="target_score" type="number" min="0" max="100" defaultValue={record?.target_score ?? ""} placeholder="0–100" />
-            </div>
-            <div className="space-y-2">
-              <Label>백분위</Label>
-              <Input name="percentile" type="number" min="0" max="100" step="0.01" defaultValue={record?.percentile ?? ""} placeholder="0–100" />
-            </div>
-            <div className="space-y-2">
-              <Label>등급</Label>
-              <Input name="grade" type="number" min="1" max="9" defaultValue={record?.grade ?? ""} placeholder="1–9" />
-            </div>
-          </div>
-          {state?.error && <p className="text-sm text-red-500">{state.error}</p>}
-          <Button type="submit" className="w-full" disabled={pending}>
-            {pending ? "저장 중..." : "저장"}
-          </Button>
         </form>
-      </DialogContent>
-    </Dialog>
+      </td>
+      <td className="py-2.5 text-right">
+        <Input
+          form={`mock-exam-form-${category}`}
+          name="raw_score"
+          type="number"
+          min="0"
+          max={maxScore}
+          value={rawScore}
+          onChange={(e) => setRawScore(e.target.value)}
+          placeholder={`0-${maxScore}`}
+          className="ml-auto max-w-24 text-right"
+        />
+      </td>
+      <td className="py-2.5 text-right">
+        {isRelative ? (
+          <Input
+            form={`mock-exam-form-${category}`}
+            name="percentile"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={percentile}
+            onChange={(e) => setPercentile(e.target.value)}
+            placeholder="0-100"
+            className="ml-auto max-w-24 text-right"
+          />
+        ) : (
+          <span className="text-muted-foreground text-sm">-</span>
+        )}
+      </td>
+      <td className="py-2.5 text-right">
+        <div className="space-y-1">
+          <Input
+            type="number"
+            min="1"
+            max="9"
+            value={grade}
+            onChange={(e) => setGrade(e.target.value)}
+            placeholder="1-9"
+            className="ml-auto max-w-20 text-right"
+          />
+          {gradeHint && <p className="text-right text-[11px] text-muted-foreground">{gradeHint}</p>}
+        </div>
+      </td>
+      <td className="py-2.5 text-right">
+        <Input
+          form={`mock-exam-form-${category}`}
+          name="target_score"
+          type="number"
+          min="0"
+          max={maxScore}
+          defaultValue={record?.target_score ?? ""}
+          placeholder={`0-${maxScore}`}
+          className="ml-auto max-w-24 text-right"
+        />
+      </td>
+      <td className="py-2.5 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            type="submit"
+            form={`mock-exam-form-${category}`}
+            size="sm"
+            disabled={pending}
+          >
+            {pending ? "저장 중..." : record ? "성적 수정" : "성적 입력"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            취소
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
 export default function MockExamView({ records }: { records: MockExamRecord[] }) {
+  const router = useRouter();
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(MONTHS.find((m) => m <= now.getMonth() + 1) ?? MONTHS[0]);
-  const [trendSubject, setTrendSubject] = useState(SUBJECTS[0]);
-  const [editTarget, setEditTarget] = useState<{ record: MockExamRecord | null } | null>(null);
+  const [trendCategory, setTrendCategory] = useState(SUBJECT_CATEGORIES[0]);
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [isPending, startTrans] = useTransition();
+
+  useEffect(() => {
+    setEditingCategory(null);
+  }, [selectedYear, selectedMonth]);
 
   const filtered = records.filter(
     (r) => r.exam_year === selectedYear && r.exam_month === selectedMonth
   );
 
-  const recordMap = new Map(filtered.map((r) => [r.subject, r]));
+  // 카테고리 기준으로 레코드 맵 구성 (탐구1(생명과학I) → 탐구1 키로 저장)
+  const recordByCategory = new Map<string, MockExamRecord>();
+  for (const r of filtered) {
+    recordByCategory.set(getSubjectCategory(r.subject), r);
+  }
+
   const scoredRecords = filtered.filter((r) => r.grade != null || r.raw_score != null || r.percentile != null);
   const avgGrade =
     scoredRecords.filter((r) => r.grade != null).length > 0
@@ -176,8 +404,7 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
           (scoredRecords
             .filter((r): r is MockExamRecord & { grade: number } => r.grade != null)
             .reduce((sum, r) => sum + r.grade, 0) /
-            scoredRecords.filter((r) => r.grade != null).length) *
-            10,
+            scoredRecords.filter((r) => r.grade != null).length) * 10,
         ) / 10
       : null;
   const bestRecord = scoredRecords
@@ -188,31 +415,32 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
     targetGapRecords.length > 0
       ? Math.round(
           (targetGapRecords.reduce((sum, r) => sum + ((r.raw_score ?? 0) - (r.target_score ?? 0)), 0) /
-            targetGapRecords.length) *
-            10,
+            targetGapRecords.length) * 10,
         ) / 10
       : null;
+
   const trendData = records
-    .filter((r) => r.subject === trendSubject)
+    .filter((r) => getSubjectCategory(r.subject) === trendCategory)
     .sort((a, b) => a.exam_year * 100 + a.exam_month - (b.exam_year * 100 + b.exam_month))
     .map((r) => ({
       label: `${String(r.exam_year).slice(2)}.${r.exam_month}`,
+      grade: r.grade,
       rawScore: r.raw_score,
       percentile: r.percentile,
-      grade: r.grade,
     }));
-  const latestTrend = trendData[trendData.length - 1];
-  const previousTrend = trendData[trendData.length - 2];
-  const gradeDelta =
-    latestTrend?.grade != null && previousTrend?.grade != null
-      ? previousTrend.grade - latestTrend.grade
-      : null;
+
+  const latestGrade = trendData.at(-1)?.grade ?? null;
+  const prevGrade = trendData.at(-2)?.grade ?? null;
+  const gradeDelta = latestGrade != null && prevGrade != null ? prevGrade - latestGrade : null;
 
   const yearOptions: number[] = [];
   const minYear = Math.min(...records.map((r) => r.exam_year), now.getFullYear() - 2);
   for (let y = now.getFullYear(); y >= minYear; y--) yearOptions.push(y);
 
   const selectClass = "h-9 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring";
+
+  // 도넛 차트에 표시할 과목 (제2외국어 제외)
+  const donutCategories = SUBJECT_CATEGORIES.filter((s) => s !== "제2외국어");
 
   return (
     <div className="space-y-6">
@@ -238,9 +466,13 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
         </select>
         <Button
           size="sm"
-          onClick={() => setEditTarget({ record: null })}
+          onClick={() => {
+            const firstEmptyCategory =
+              SUBJECT_CATEGORIES.find((cat) => !recordByCategory.has(cat)) ?? SUBJECT_CATEGORIES[0];
+            setEditingCategory(firstEmptyCategory);
+          }}
         >
-          + 성적 입력
+          성적 입력
         </Button>
       </div>
 
@@ -250,13 +482,20 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
           {selectedYear}년 {selectedMonth}월 모의고사 — 과목별 등급
         </h2>
         <div className="flex items-center justify-around flex-wrap gap-4">
-          {SUBJECTS.filter((s) => s !== "제2외국어").map((subject) => (
-            <GradeDonut
-              key={subject}
-              subject={subject}
-              grade={recordMap.get(subject)?.grade ?? null}
-            />
-          ))}
+          {donutCategories.map((cat) => {
+            const rec = recordByCategory.get(cat);
+            // 탐구 카테고리는 세부 과목명이 있으면 그걸 표시
+            const label = TANGU_CATEGORIES.includes(cat) && rec
+              ? getDisplayName(rec.subject)
+              : cat;
+            return (
+              <GradeDonut
+                key={cat}
+                label={label}
+                grade={rec?.grade ?? null}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -268,7 +507,9 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
         </div>
         <div className="rounded-xl border bg-white p-5">
           <p className="text-xs text-muted-foreground mb-1">가장 좋은 과목</p>
-          <p className="text-2xl font-bold">{bestRecord ? bestRecord.subject : "-"}</p>
+          <p className="text-2xl font-bold">
+            {bestRecord ? getDisplayName(bestRecord.subject) : "-"}
+          </p>
           <p className="text-xs text-muted-foreground mt-2">
             {bestRecord?.grade != null ? `${bestRecord.grade}등급` : "성적을 입력하면 표시됩니다"}
           </p>
@@ -288,47 +529,71 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
         </div>
       </div>
 
+      {/* 추이 차트 */}
       <div className="rounded-xl border bg-white p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold">모의고사 추이</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              등급은 숫자가 낮을수록 좋은 성적입니다.
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {gradeDelta == null
+                ? "기록이 더 쌓이면 등급 변화를 확인할 수 있습니다."
+                : gradeDelta > 0
+                  ? `직전 시험보다 ${gradeDelta}등급 올랐습니다.`
+                  : gradeDelta < 0
+                    ? `직전 시험보다 ${Math.abs(gradeDelta)}등급 내려갔습니다.`
+                    : "직전 시험과 등급이 같습니다."}
             </p>
           </div>
           <select
-            value={trendSubject}
-            onChange={(e) => setTrendSubject(e.target.value)}
+            value={trendCategory}
+            onChange={(e) => setTrendCategory(e.target.value)}
             className={selectClass}
           >
-            {SUBJECTS.map((subject) => (
-              <option key={subject} value={subject}>{subject}</option>
+            {SUBJECT_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
         </div>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height={288}>
-            <LineChart data={trendData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        {trendData.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">
+            {trendCategory} 성적을 입력하면 추이가 표시됩니다.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+<CartesianGrid stroke="transparent" />
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((g) => (
+                <ReferenceLine key={g} y={g} stroke="#e5e7eb" strokeWidth={1} />
+              ))}
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="score" domain={[0, 100]} tick={{ fontSize: 12 }} width={40} />
-              <YAxis yAxisId="grade" orientation="right" domain={[1, 9]} tick={{ fontSize: 12 }} width={36} />
-              <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              <Line yAxisId="score" type="monotone" dataKey="rawScore" name="원점수" stroke="#2563eb" strokeWidth={2} connectNulls />
-              <Line yAxisId="score" type="monotone" dataKey="percentile" name="백분위" stroke="#16a34a" strokeWidth={2} connectNulls />
-              <Line yAxisId="grade" type="monotone" dataKey="grade" name="등급" stroke="#d97706" strokeWidth={2} connectNulls />
+              <YAxis
+                domain={[1, 9]}
+                reversed
+                ticks={[1, 2, 3, 4, 5, 6, 7, 8, 9]}
+                tick={{ fontSize: 12 }}
+                width={28}
+                tickFormatter={(v) => `${v}`}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                formatter={(value, name) => {
+                  if (name === "등급") return [`${value}등급`, name];
+                  return [value, name];
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="grade"
+                name="등급"
+                stroke="#2563eb"
+                strokeWidth={2.5}
+                dot={{ r: 5, fill: "#2563eb" }}
+                activeDot={{ r: 7 }}
+                connectNulls
+              />
             </LineChart>
           </ResponsiveContainer>
-        </div>
-        <div className="mt-4 rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          {gradeDelta == null
-            ? `${trendSubject} 기록이 더 쌓이면 최근 등급 변화를 보여드립니다.`
-            : gradeDelta > 0
-              ? `${trendSubject} 등급이 직전 시험보다 ${gradeDelta}등급 좋아졌습니다.`
-              : gradeDelta < 0
-                ? `${trendSubject} 등급이 직전 시험보다 ${Math.abs(gradeDelta)}등급 내려갔습니다.`
-                : `${trendSubject} 등급이 직전 시험과 같습니다.`}
-        </div>
+        )}
       </div>
 
       {/* 성적 테이블 */}
@@ -336,75 +601,49 @@ export default function MockExamView({ records }: { records: MockExamRecord[] })
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-semibold">{selectedYear}년 {selectedMonth}월 성적 상세</h2>
         </div>
-        {filtered.length === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            이 시험에 등록된 성적이 없습니다.{" "}
-            <button
-              onClick={() => setEditTarget({ record: null })}
-              className="text-primary underline"
-            >
-              성적 입력하기
-            </button>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-muted-foreground text-left">
-                <th className="pb-2 font-medium">과목</th>
-                <th className="pb-2 font-medium text-right">원점수</th>
-                <th className="pb-2 font-medium text-right">백분위</th>
-                <th className="pb-2 font-medium text-right">등급</th>
-                <th className="pb-2 font-medium text-right">목표점수</th>
-                <th className="pb-2 font-medium text-right" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="py-2.5 font-medium">{r.subject}</td>
-                  <td className="py-2.5 text-right">{r.raw_score ?? "-"}</td>
-                  <td className="py-2.5 text-right">{r.percentile != null ? `${r.percentile}%` : "-"}</td>
-                  <td className={`py-2.5 text-right font-semibold ${r.grade != null ? (GRADE_COLOR[r.grade] ?? "") : "text-muted-foreground"}`}>
-                    {r.grade != null ? `${r.grade}등급` : "-"}
-                  </td>
-                  <td className="py-2.5 text-right text-muted-foreground">
-                    {r.target_score != null ? (
-                      <span className={r.raw_score != null && r.raw_score >= r.target_score ? "text-green-600" : "text-yellow-600"}>
-                        {r.target_score}
-                      </span>
-                    ) : "-"}
-                  </td>
-                  <td className="py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setEditTarget({ record: r })}>
-                        수정
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={isPending}
-                        className="text-red-500 hover:text-red-600"
-                        onClick={() => startTrans(() => { void deleteMockExamRecord(r.id); })}
-                      >
-                        삭제
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-muted-foreground text-left">
+              <th className="pb-2 font-medium">과목</th>
+              <th className="pb-2 font-medium text-right">원점수</th>
+              <th className="pb-2 font-medium text-right">백분위</th>
+              <th className="pb-2 font-medium text-right">등급</th>
+              <th className="pb-2 font-medium text-right">목표점수</th>
+              <th className="pb-2 font-medium text-right" />
+            </tr>
+          </thead>
+          <tbody>
+            {SUBJECT_CATEGORIES.map((cat) => {
+              const record = recordByCategory.get(cat) ?? null;
+              return (
+                <MockExamTableRow
+                  key={`${cat}:${record?.id ?? "empty"}:${editingCategory === cat ? "editing" : "view"}`}
+                  category={cat}
+                  record={record}
+                  maxScore={getMaxScore(cat)}
+                  examYear={selectedYear}
+                  examMonth={selectedMonth}
+                  isEditing={editingCategory === cat}
+                  onEdit={() => setEditingCategory(cat)}
+                  onCancel={() => setEditingCategory(null)}
+                  onSaved={() => {
+                    setEditingCategory(null);
+                    router.refresh();
+                  }}
+                  onDelete={() => {
+                    if (!record) return;
+                    startTrans(async () => {
+                      await deleteMockExamRecord(record.id);
+                      router.refresh();
+                    });
+                  }}
+                  deletePending={isPending}
+                />
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-
-      {editTarget && (
-        <RecordEditDialog
-          record={editTarget.record}
-          examYear={selectedYear}
-          examMonth={selectedMonth}
-          onClose={() => setEditTarget(null)}
-        />
-      )}
     </div>
   );
 }

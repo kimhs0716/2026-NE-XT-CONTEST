@@ -5,10 +5,13 @@ import { addGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
-  commonSubjects,
-  sortSubjectsByPreferredOrder,
+  getSubjectsBySchoolLevel,
   semesterTypeLabels,
+  isGradeCategorySubject,
+  buildGradeSubjectName,
+  GRADE_CATEGORY_DETAIL_PLACEHOLDER,
   type SemesterType,
+  type ExamType,
 } from "@/lib/constants/grades";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,25 +32,33 @@ function defaultSemesterType(): SemesterType {
   return m >= 3 && m <= 8 ? "semester_1" : "semester_2";
 }
 
+const WEIGHTED_EXAM_TYPES: ExamType[] = ["midterm", "assignment", "final"];
+
 const INITIAL = {
-  subjectMode: "select" as "select" | "custom",
-  selectedSubject: "",
-  customSubject: "",
-  examType: "midterm",
+  selectedCategory: "",
+  categoryDetail: "",
+  examType: "midterm" as ExamType,
   score: "",
   maxScore: "100",
+  weight: "",
   memo: "",
 };
 
-export default function GradeForm({ subjects }: { subjects: string[] }) {
+export default function GradeForm({
+  subjects: _subjects,
+  schoolLevel,
+}: {
+  subjects: string[];
+  schoolLevel?: "middle" | "high" | null;
+}) {
   const [state, action, pending] = useActionState(addGrade, null);
   const [open, setOpen] = useState(false);
-  const [subjectMode, setSubjectMode] = useState(INITIAL.subjectMode);
-  const [selectedSubject, setSelectedSubject] = useState(INITIAL.selectedSubject);
-  const [customSubject, setCustomSubject] = useState(INITIAL.customSubject);
-  const [examType, setExamType] = useState(INITIAL.examType);
+  const [selectedCategory, setSelectedCategory] = useState(INITIAL.selectedCategory);
+  const [categoryDetail, setCategoryDetail] = useState(INITIAL.categoryDetail);
+  const [examType, setExamType] = useState<ExamType>(INITIAL.examType);
   const [score, setScore] = useState(INITIAL.score);
   const [maxScore, setMaxScore] = useState(INITIAL.maxScore);
+  const [weight, setWeight] = useState(INITIAL.weight);
   const [semesterYear, setSemesterYear] = useState(() => new Date().getFullYear());
   const [semesterType, setSemesterType] = useState<SemesterType>(defaultSemesterType);
   const [memo, setMemo] = useState(INITIAL.memo);
@@ -55,20 +66,25 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
   useEffect(() => {
     if (state?.success) {
       setOpen(false);
-      setSubjectMode(INITIAL.subjectMode);
-      setSelectedSubject(INITIAL.selectedSubject);
-      setCustomSubject(INITIAL.customSubject);
+      setSelectedCategory(INITIAL.selectedCategory);
+      setCategoryDetail(INITIAL.categoryDetail);
       setExamType(INITIAL.examType);
       setScore(INITIAL.score);
       setMaxScore(INITIAL.maxScore);
+      setWeight(INITIAL.weight);
       setSemesterYear(new Date().getFullYear());
       setSemesterType(defaultSemesterType());
       setMemo(INITIAL.memo);
     }
   }, [state]);
 
-  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
-  const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
+  const presetSubjects = getSubjectsBySchoolLevel(schoolLevel);
+  const showDetailInput =
+    isGradeCategorySubject(selectedCategory, schoolLevel) || selectedCategory === "기타";
+  const subjectName = buildGradeSubjectName(selectedCategory, categoryDetail, schoolLevel);
+  const showWeight = WEIGHTED_EXAM_TYPES.includes(examType);
+  const detailPlaceholder =
+    GRADE_CATEGORY_DETAIL_PLACEHOLDER[selectedCategory] ?? "세부 과목명 입력";
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => setOpen(isOpen)}>
@@ -77,34 +93,35 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
         <DialogHeader>
           <DialogTitle>성적 추가</DialogTitle>
         </DialogHeader>
-        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            startTransition(() => action(new FormData(e.currentTarget)));
+          }}
+          className="space-y-4 mt-2"
+        >
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
             <Label>과목명<span className="text-red-500">*</span></Label>
             <select
-              value={subjectMode === "custom" ? "__custom__" : selectedSubject}
+              value={selectedCategory}
               onChange={(e) => {
-                if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
+                setSelectedCategory(e.target.value);
+                setCategoryDetail("");
               }}
               className={selectClass}
             >
               <option value="">과목 선택</option>
-              {subjectOptions.map((s) => (
+              {presetSubjects.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-              <option value="__custom__">기타(직접 입력)</option>
+              <option value="기타">기타</option>
             </select>
-            {subjectMode === "custom" && (
+            {showDetailInput && (
               <Input
-                placeholder="과목명 입력"
-                value={customSubject}
-                onChange={(e) => setCustomSubject(e.target.value)}
+                placeholder={detailPlaceholder}
+                value={categoryDetail}
+                onChange={(e) => setCategoryDetail(e.target.value)}
                 autoFocus
               />
             )}
@@ -115,7 +132,7 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
               id="exam_type"
               name="exam_type"
               value={examType}
-              onChange={(e) => setExamType(e.target.value)}
+              onChange={(e) => setExamType(e.target.value as ExamType)}
               className={selectClass}
             >
               {examTypeGroups.map((group) => (
@@ -157,6 +174,25 @@ export default function GradeForm({ subjects }: { subjects: string[] }) {
               />
             </div>
           </div>
+          {showWeight && (
+            <div className="space-y-2">
+              <Label htmlFor="weight">반영비 (%)</Label>
+              <Input
+                id="weight"
+                name="weight"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                placeholder="30"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                중간고사 + 수행평가 + 기말고사 반영비 합이 100이면 총점 기준으로 확인할 수 있습니다
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>학기<span className="text-red-500">*</span></Label>
             <div className="grid grid-cols-2 gap-2">

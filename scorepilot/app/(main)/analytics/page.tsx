@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { formatSemester, type SemesterType } from "@/lib/constants/grades";
-import GradeChart from "@/components/analytics/GradeChart";
+import GradeChartWithFilter from "@/components/analytics/GradeChartWithFilter";
 import PredictionSection from "@/components/analytics/PredictionSection";
 import SubjectAnalysisCard from "@/components/analytics/SubjectAnalysisCard";
 import AiFeedbackCard from "@/components/analytics/AiFeedbackCard";
@@ -13,6 +13,7 @@ import StudyTaskActions from "@/components/analytics/StudyTaskActions";
 import { computeMetrics } from "@/lib/analytics/metrics";
 import { computeRisk } from "@/lib/analytics/risk";
 import { computeStrategy } from "@/lib/analytics/strategy";
+import { computePrediction } from "@/lib/analytics/prediction";
 import type { GradePoint, SubjectAnalysis } from "@/lib/analytics/types";
 
 type ExamRow = {
@@ -22,7 +23,7 @@ type ExamRow = {
     | { year: number; semester_type: string }
     | { year: number; semester_type: string }[]
     | null;
-  grade_records: { percentage: number; score: number; max_score: number }[];
+  grade_records: { percentage: number; score: number; max_score: number; grade_level: string | null }[];
   created_at: string;
 };
 
@@ -155,6 +156,48 @@ function buildChartData(
   return { data, subjects };
 }
 
+function gradeToNumber(grade: string | null | undefined): number | null {
+  if (!grade) return null;
+  const t = grade.trim().toUpperCase();
+  const n = Number(t);
+  if (!isNaN(n) && n >= 1 && n <= 9) return n;
+  const map: Record<string, number> = { A: 1, B: 2, C: 3, D: 4, E: 5 };
+  return map[t] ?? null;
+}
+
+function buildGradeChartData(
+  rows: { semester: string; semOrder: number; subject: string; gradeValue: number }[],
+) {
+  const subjects = [...new Set(rows.map((r) => r.subject))];
+  const bySem = new Map<string, { semOrder: number; scores: Record<string, number | null> }>();
+  for (const r of rows) {
+    if (!bySem.has(r.semester)) {
+      bySem.set(r.semester, {
+        semOrder: r.semOrder,
+        scores: Object.fromEntries(subjects.map((s) => [s, null])),
+      });
+    }
+    bySem.get(r.semester)!.scores[r.subject] = r.gradeValue;
+  }
+  const data = [...bySem.entries()]
+    .sort(([, a], [, b]) => a.semOrder - b.semOrder)
+    .map(([semester, { scores }]) => {
+      const values = Object.values(scores).filter((v): v is number => v !== null);
+      const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+      return {
+        semester,
+        ...scores,
+        "전체 평균": avg !== null ? Math.round(avg * 10) / 10 : null,
+      };
+    });
+  return { data, subjects };
+}
+
+function subjectCategory(name: string): string {
+  const idx = name.indexOf("(");
+  return idx > 0 ? name.slice(0, idx) : name;
+}
+
 function buildMockComparison(
   mockRows: MockExamRow[],
   subjectAnalysisList: SubjectAnalysis[],
@@ -196,6 +239,13 @@ export default async function AnalyticsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("school_level")
+    .eq("id", user.id)
+    .single();
+  const schoolLevel = (profileData as { school_level: string | null } | null)?.school_level as "middle" | "high" | null;
+
   const [
     { data: rows },
     { data: predRows },
@@ -208,7 +258,7 @@ export default async function AnalyticsPage() {
     supabase
       .from("exams")
       .select(
-        `exam_type, subjects ( name ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score ), created_at`,
+        `exam_type, subjects ( name ), semesters!exam_semester ( year, semester_type ), grade_records ( percentage, score, max_score, grade_level ), created_at`,
       )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
@@ -273,6 +323,35 @@ export default async function AnalyticsPage() {
   });
 
   const chart = buildChartData(validRows);
+
+  // ── 등급 기반 차트 데이터 (grade_level 입력된 과목만) ─────────
+  const gradeValidRows = (rows as ExamRow[] ?? []).flatMap((r) => {
+    const gradeNum = gradeToNumber(r.grade_records[0]?.grade_level);
+    if (gradeNum === null) return [];
+    const name = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+    if (!name) return [];
+    const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
+    if (!sem) return [];
+    const type = sem.semester_type as SemesterType;
+    return [{ subject: name, gradeValue: gradeNum, semester: formatSemester(sem.year, type), semOrder: semesterOrder(sem.year, type) }];
+  });
+  const gradeChart = buildGradeChartData(gradeValidRows);
+
+  const gradeSubjectAvgValues = [...new Set(gradeValidRows.map((r) => r.subject))].map((s) => {
+    const vals = gradeValidRows.filter((r) => r.subject === s).map((r) => r.gradeValue);
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  });
+  const gradeOverallAvg =
+    gradeSubjectAvgValues.length > 0
+      ? Math.round((gradeSubjectAvgValues.reduce((a, b) => a + b, 0) / gradeSubjectAvgValues.length) * 10) / 10
+      : null;
+
+  const gradeCategoryMap: Record<string, string> = {};
+  for (const name of gradeChart.subjects) gradeCategoryMap[name] = subjectCategory(name);
+  const gradeUniqueCategories = [...new Set(Object.values(gradeCategoryMap))].sort((a, b) =>
+    a.localeCompare(b, "ko"),
+  );
+
   const subjectNames = [...chart.subjects].sort((a, b) => a.localeCompare(b, "ko"));
   const subjectOptions = [...new Map(
     ((subjectRows ?? []) as SubjectRow[]).map((subject) => [subject.name, subject]),
@@ -306,8 +385,15 @@ export default async function AnalyticsPage() {
       ? Math.round((allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length) * 10) / 10
       : null;
 
+  // ── 차트 분류 필터 ────────────────────────────────────────────
+  const categoryMap: Record<string, string> = {};
+  for (const name of chart.subjects) categoryMap[name] = subjectCategory(name);
+  const uniqueCategories = [...new Set(Object.values(categoryMap))].sort((a, b) =>
+    a.localeCompare(b, "ko"),
+  );
+
   // ── 예측 데이터 ───────────────────────────────────────────────
-  const predictions = (predRows ?? [])
+  const allPredictions = (predRows ?? [])
     .map((r) => {
       const sub = Array.isArray(r.subjects) ? r.subjects[0] : r.subjects;
       return {
@@ -320,6 +406,91 @@ export default async function AnalyticsPage() {
       };
     })
     .filter((p) => p.subject_name);
+
+  // 현재(최신) 학기 내신 과목
+  const maxSemOrder = validRows.length > 0 ? Math.max(...validRows.map((r) => r.semOrder)) : 0;
+  const currentSemSubjects = new Set(
+    validRows.filter((r) => r.semOrder === maxSemOrder).map((r) => r.subject),
+  );
+
+  // 최근 모의고사 과목
+  const latestMockOrder =
+    (mockRows ?? []).length > 0
+      ? Math.max(...(mockRows as MockExamRow[]).map((r) => r.exam_year * 100 + r.exam_month))
+      : 0;
+  const latestMockSubjects = new Set(
+    (mockRows as MockExamRow[])
+      .filter((r) => r.exam_year * 100 + r.exam_month === latestMockOrder)
+      .map((r) => r.subject),
+  );
+
+  // 내신 예측: DB 저장 예측 중 현재 학기 과목 (동일 과목명 중복 제거, 최신 우선)
+  const schoolPredictions = Array.from(
+    new Map(
+      allPredictions
+        .filter((p) => currentSemSubjects.has(p.subject_name))
+        .map((p) => [p.subject_name, p]),
+    ).values(),
+  );
+
+  // 모의고사 예측: mock_exam_records의 raw_score 추세로 실시간 계산
+  // 모의고사 과목은 보통 단순명 (국어, 수학 등)이지만 동일 로직 적용
+  const mockCategoryAccum = new Map<string, Map<number, number[]>>();
+  const mockSubjectToCat = new Map<string, string>();
+  for (const r of (mockRows ?? []) as MockExamRow[]) {
+    if (r.raw_score == null) continue;
+    const cat = subjectCategory(r.subject);
+    mockSubjectToCat.set(r.subject, cat);
+    if (!mockCategoryAccum.has(cat)) mockCategoryAccum.set(cat, new Map());
+    const semMap = mockCategoryAccum.get(cat)!;
+    const order = r.exam_year * 100 + r.exam_month;
+    if (!semMap.has(order)) semMap.set(order, []);
+    semMap.get(order)!.push(r.raw_score);
+  }
+
+  const mockCategoryGrades = new Map<string, GradePoint[]>();
+  for (const [cat, semMap] of mockCategoryAccum.entries()) {
+    const points = [...semMap.entries()].map(([semOrder, scores]) => ({
+      semOrder,
+      percentage: scores.reduce((a, b) => a + b, 0) / scores.length,
+    }));
+    mockCategoryGrades.set(cat, points);
+  }
+
+  // 모의고사 과목별 최근 원점수 (델타 계산용)
+  const mockSubjectHistory = new Map<string, number[]>();
+  for (const r of (mockRows ?? []) as MockExamRow[]) {
+    if (r.raw_score == null) continue;
+    if (!mockSubjectHistory.has(r.subject)) mockSubjectHistory.set(r.subject, []);
+    mockSubjectHistory.get(r.subject)!.push(r.raw_score);
+  }
+
+  const mockPredictions = [...latestMockSubjects]
+    .map((subject) => {
+      const cat = mockSubjectToCat.get(subject) ?? subjectCategory(subject);
+      const trainingData = mockCategoryGrades.get(cat) ?? [];
+      if (trainingData.length === 0) return null;
+      const result = computePrediction(trainingData);
+      if (!result) return null;
+      return {
+        subject_name: subject,
+        predicted_score: result.predictedScore,
+        prediction_target: `${subject} 다음 모의고사`,
+        confidence: result.confidence,
+        basis: result.basis,
+        created_at: new Date().toISOString(),
+      };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
+
+  const mockSubjectAvgs = [...latestMockSubjects]
+    .map((subject) => {
+      const history = mockSubjectHistory.get(subject) ?? [];
+      if (history.length === 0) return null;
+      const avg = history.reduce((a, b) => a + b, 0) / history.length;
+      return { subject, avg: Math.round(avg * 10) / 10 };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
 
   const subjectAvgs = subjectAnalysisList.map((s) => ({
     subject: s.metrics.subject,
@@ -361,15 +532,26 @@ export default async function AnalyticsPage() {
 
           {/* 종합 성적 (꺾은선 그래프) */}
           <div className="rounded-2xl border bg-white p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold">종합 성적</h2>
-              {overallAvg !== null && (
-                <span className="text-sm text-muted-foreground">
-                  전체 평균 <span className="font-semibold text-foreground">{overallAvg}점</span>
-                </span>
-              )}
-            </div>
-            <GradeChart data={chart.data} subjects={chart.subjects} />
+            <h2 className="text-base font-semibold mb-4">종합 성적</h2>
+            {schoolLevel === "high" ? (
+              <GradeChartWithFilter
+                data={gradeChart.data}
+                subjects={gradeChart.subjects}
+                categoryMap={gradeCategoryMap}
+                categories={gradeUniqueCategories}
+                overallAvg={gradeOverallAvg}
+                mode="grade"
+              />
+            ) : (
+              <GradeChartWithFilter
+                data={chart.data}
+                subjects={chart.subjects}
+                categoryMap={categoryMap}
+                categories={uniqueCategories}
+                overallAvg={overallAvg}
+                mode="score"
+              />
+            )}
           </div>
 
           {/* 학습 피드백 */}
@@ -608,7 +790,12 @@ export default async function AnalyticsPage() {
 
           <div className="rounded-2xl border bg-white p-6 space-y-4">
             <h2 className="text-base font-semibold">성적 예측</h2>
-            <PredictionSection predictions={predictions} subjectAvgs={subjectAvgs} />
+            <PredictionSection
+              schoolPredictions={schoolPredictions}
+              mockPredictions={mockPredictions}
+              subjectAvgs={subjectAvgs}
+              mockSubjectAvgs={mockSubjectAvgs}
+            />
           </div>
 
         </div>

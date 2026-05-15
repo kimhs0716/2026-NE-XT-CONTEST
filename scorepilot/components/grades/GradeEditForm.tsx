@@ -5,9 +5,12 @@ import { updateGrade } from "@/lib/actions/grades";
 import {
   examTypeLabels,
   examTypeGroups,
-  commonSubjects,
-  sortSubjectsByPreferredOrder,
+  getSubjectsBySchoolLevel,
   semesterTypeLabels,
+  isGradeCategorySubject,
+  buildGradeSubjectName,
+  parseGradeSubjectName,
+  GRADE_CATEGORY_DETAIL_PLACEHOLDER,
   type ExamType,
   type SemesterType,
 } from "@/lib/constants/grades";
@@ -25,32 +28,42 @@ import {
 const selectClass =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
+const WEIGHTED_EXAM_TYPES: ExamType[] = ["midterm", "assignment", "final"];
+
 type Grade = {
   examId: string;
   subject: string;
   examType: ExamType;
   score: number;
   maxScore: number;
+  weight?: number | null;
+  gradeLevel?: string | null;
   semesterYear: number;
   semesterType: SemesterType;
   memo: string | null;
 };
 
-export default function GradeEditForm({ grade, subjects }: { grade: Grade; subjects: string[] }) {
+export default function GradeEditForm({
+  grade,
+  subjects,
+  schoolLevel,
+}: {
+  grade: Grade;
+  subjects: string[];
+  schoolLevel?: "middle" | "high" | null;
+}) {
   const [state, action, pending] = useActionState(updateGrade, null);
   const [open, setOpen] = useState(false);
 
-  const subjectOptions = sortSubjectsByPreferredOrder(commonSubjects);
-  const isKnown = subjectOptions.includes(grade.subject);
+  const presetSubjects = getSubjectsBySchoolLevel(schoolLevel);
+  const parsed = parseGradeSubjectName(grade.subject, schoolLevel, [...new Set([...presetSubjects, ...subjects])]);
 
-  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(
-    isKnown ? "select" : "custom"
-  );
-  const [selectedSubject, setSelectedSubject] = useState(isKnown ? grade.subject : "");
-  const [customSubject, setCustomSubject] = useState(isKnown ? "" : grade.subject);
+  const [selectedCategory, setSelectedCategory] = useState(parsed.category);
+  const [categoryDetail, setCategoryDetail] = useState(parsed.detail);
   const [examType, setExamType] = useState(grade.examType);
   const [score, setScore] = useState(String(grade.score));
   const [maxScore, setMaxScore] = useState(String(grade.maxScore));
+  const [weight, setWeight] = useState(grade.weight != null ? String(grade.weight) : "");
   const [semesterYear, setSemesterYear] = useState(grade.semesterYear);
   const [semesterType, setSemesterType] = useState<SemesterType>(grade.semesterType);
   const [memo, setMemo] = useState(grade.memo ?? "");
@@ -59,7 +72,12 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
     if (state?.success) setOpen(false);
   }, [state]);
 
-  const subjectName = subjectMode === "select" ? selectedSubject : customSubject;
+  const showDetailInput =
+    isGradeCategorySubject(selectedCategory, schoolLevel) || selectedCategory === "기타";
+  const subjectName = buildGradeSubjectName(selectedCategory, categoryDetail, schoolLevel);
+  const showWeight = WEIGHTED_EXAM_TYPES.includes(examType);
+  const detailPlaceholder =
+    GRADE_CATEGORY_DETAIL_PLACEHOLDER[selectedCategory] ?? "세부 과목명 입력";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -68,36 +86,36 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
         <DialogHeader>
           <DialogTitle>성적 수정</DialogTitle>
         </DialogHeader>
-        <form onSubmit={(e) => { e.preventDefault(); startTransition(() => action(new FormData(e.currentTarget))); }} className="space-y-4 mt-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            startTransition(() => action(new FormData(e.currentTarget)));
+          }}
+          className="space-y-4 mt-2"
+        >
           <input type="hidden" name="exam_id" value={grade.examId} />
           <input type="hidden" name="subject_name" value={subjectName} />
           <div className="space-y-2">
             <Label>과목명<span className="text-red-500">*</span></Label>
             <select
-              value={subjectMode === "custom" ? "__custom__" : selectedSubject}
+              value={selectedCategory}
               onChange={(e) => {
-                if (e.target.value === "__custom__") {
-                  setSubjectMode("custom");
-                  setSelectedSubject("");
-                } else {
-                  setSubjectMode("select");
-                  setSelectedSubject(e.target.value);
-                }
+                setSelectedCategory(e.target.value);
+                setCategoryDetail("");
               }}
               className={selectClass}
             >
               <option value="">과목 선택</option>
-              {subjectOptions.map((s) => (
+              {presetSubjects.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-              <option value="__custom__">기타(직접 입력)</option>
+              <option value="기타">기타</option>
             </select>
-            {subjectMode === "custom" && (
+            {showDetailInput && (
               <Input
-                placeholder="과목명 입력"
-                value={customSubject}
-                onChange={(e) => setCustomSubject(e.target.value)}
-                autoFocus
+                placeholder={detailPlaceholder}
+                value={categoryDetail}
+                onChange={(e) => setCategoryDetail(e.target.value)}
               />
             )}
           </div>
@@ -148,6 +166,22 @@ export default function GradeEditForm({ grade, subjects }: { grade: Grade; subje
               />
             </div>
           </div>
+          {showWeight && (
+            <div className="space-y-2">
+              <Label htmlFor="edit_weight">반영비 (%)</Label>
+              <Input
+                id="edit_weight"
+                name="weight"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                placeholder="30"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>학기<span className="text-red-500">*</span></Label>
             <div className="grid grid-cols-2 gap-2">

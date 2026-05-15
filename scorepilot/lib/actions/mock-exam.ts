@@ -12,6 +12,7 @@ export async function upsertMockExamRecord(_: unknown, formData: FormData) {
     const examYear = parseInt(formData.get("exam_year") as string, 10);
     const examMonth = parseInt(formData.get("exam_month") as string, 10);
     const subject = (formData.get("subject") as string)?.trim();
+    const originalSubject = (formData.get("original_subject") as string)?.trim() || null;
     const rawScoreStr = formData.get("raw_score") as string;
     const percentileStr = formData.get("percentile") as string;
     const gradeStr = formData.get("grade") as string;
@@ -23,6 +24,17 @@ export async function upsertMockExamRecord(_: unknown, formData: FormData) {
     const percentile = percentileStr ? parseFloat(percentileStr) : null;
     const grade = gradeStr ? parseInt(gradeStr, 10) : null;
     const target_score = targetScoreStr ? parseInt(targetScoreStr, 10) : null;
+
+    // 과목명이 변경된 경우 이전 레코드 삭제 (예: "탐구1" → "탐구1(생명과학I)")
+    if (originalSubject && originalSubject !== subject) {
+      await supabase
+        .from("mock_exam_records")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("exam_year", examYear)
+        .eq("exam_month", examMonth)
+        .eq("subject", originalSubject);
+    }
 
     const { error } = await supabase
       .from("mock_exam_records")

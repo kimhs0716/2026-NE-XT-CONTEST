@@ -18,10 +18,19 @@ type SubjectAvg = {
   avg: number;
 };
 
-function scoreColor(score: number) {
-  if (score >= 80) return "text-green-600";
-  if (score >= 60) return "text-yellow-600";
+function scoreColor(score: number, maxScore = 100) {
+  const ratio = maxScore > 0 ? score / maxScore : score / 100;
+  if (ratio >= 0.8) return "text-green-600";
+  if (ratio >= 0.6) return "text-yellow-600";
   return "text-red-500";
+}
+
+function mockSubjectMaxScore(subject: string) {
+  const category = subject.includes("(") ? subject.slice(0, subject.indexOf("(")) : subject;
+  if (category === "한국사" || category === "탐구1" || category === "탐구2" || category === "제2외국어") {
+    return 50;
+  }
+  return 100;
 }
 
 function confidenceLabel(c: number) {
@@ -30,17 +39,88 @@ function confidenceLabel(c: number) {
   return { text: "낮음", cls: "bg-gray-100 text-gray-600" };
 }
 
-export default function PredictionSection({
-  predictions,
-  subjectAvgs,
+function PredictionCard({
+  p,
+  currentAvg,
+  scoreUnit = "점",
+  maxScore = 100,
 }: {
-  predictions: Prediction[];
+  p: Prediction;
+  currentAvg: number | undefined;
+  scoreUnit?: string;
+  maxScore?: number;
+}) {
+  const delta = currentAvg !== undefined ? p.predicted_score - currentAvg : null;
+  const conf = confidenceLabel(p.confidence);
+
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="font-semibold text-sm">{p.subject_name}</p>
+          <p className="text-xs text-muted-foreground">{p.prediction_target}</p>
+        </div>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${conf.cls}`}>
+          신뢰도 {conf.text}
+        </span>
+      </div>
+
+      <div className="flex items-end gap-3">
+        <span className={`text-3xl font-bold ${scoreColor(p.predicted_score, maxScore)}`}>
+          {p.predicted_score}{scoreUnit}
+        </span>
+        {delta !== null && (
+          <span
+            className={`text-sm font-medium pb-0.5 ${
+              delta > 0
+                ? "text-green-600"
+                : delta < 0
+                ? "text-red-500"
+                : "text-muted-foreground"
+            }`}
+          >
+            {delta > 0 ? "+" : ""}
+            {delta.toFixed(1)}{scoreUnit}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>신뢰도</span>
+          <span>{Math.round(p.confidence * 100)}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${p.confidence * 100}%` }}
+          />
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground leading-relaxed">{p.basis}</p>
+    </div>
+  );
+}
+
+export default function PredictionSection({
+  schoolPredictions,
+  mockPredictions,
+  subjectAvgs,
+  mockSubjectAvgs,
+}: {
+  schoolPredictions: Prediction[];
+  mockPredictions: Prediction[];
   subjectAvgs: SubjectAvg[];
+  mockSubjectAvgs: SubjectAvg[];
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
   const avgMap = new Map(subjectAvgs.map((s) => [s.subject, s.avg]));
+  const mockAvgMap = new Map(mockSubjectAvgs.map((s) => [s.subject, s.avg]));
+
+  const hasAny = schoolPredictions.length > 0 || mockPredictions.length > 0;
 
   function handleGenerate() {
     startTransition(async () => {
@@ -62,82 +142,67 @@ export default function PredictionSection({
           disabled={isPending}
           className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
-          {isPending ? "분석 중…" : predictions.length === 0 ? "예측 생성" : "새로고침"}
+          {isPending ? "분석 중…" : !hasAny ? "예측 생성" : "새로고침"}
         </button>
       </div>
 
-      {predictions.length === 0 ? (
+      {!hasAny ? (
         <div className="text-center py-10 text-muted-foreground text-sm">
           <p className="text-2xl mb-2">🔮</p>
           <p>성적 기록이 쌓이면 다음 점수를 예측할 수 있습니다.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
-          {predictions.map((p) => {
-            const currentAvg = avgMap.get(p.subject_name);
-            const delta =
-              currentAvg !== undefined ? p.predicted_score - currentAvg : null;
-            const conf = confidenceLabel(p.confidence);
-
-            return (
-              <div
-                key={p.subject_name}
-                className="rounded-lg border p-4 space-y-3"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-semibold text-sm">{p.subject_name}</p>
-                    <p className="text-xs text-muted-foreground">{p.prediction_target}</p>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${conf.cls}`}>
-                    신뢰도 {conf.text}
-                  </span>
-                </div>
-
-                <div className="flex items-end gap-3">
-                  <span className={`text-3xl font-bold ${scoreColor(p.predicted_score)}`}>
-                    {p.predicted_score}점
-                  </span>
-                  {delta !== null && (
-                    <span
-                      className={`text-sm font-medium pb-0.5 ${
-                        delta > 0
-                          ? "text-green-600"
-                          : delta < 0
-                          ? "text-red-500"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {delta > 0 ? "+" : ""}
-                      {delta.toFixed(1)}점
-                    </span>
-                  )}
-                </div>
-
-                {/* Confidence bar */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>신뢰도</span>
-                    <span>{Math.round(p.confidence * 100)}%</span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{ width: `${p.confidence * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                <p className="text-xs text-muted-foreground leading-relaxed">{p.basis}</p>
+        <div className="space-y-6">
+          {/* 내신 */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground mb-3">내신</p>
+            {schoolPredictions.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3">
+                현재 학기 내신 예측 데이터가 없습니다. 예측 생성을 눌러보세요.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {schoolPredictions.map((p) => (
+                  <PredictionCard
+                    key={p.subject_name}
+                    p={p}
+                    currentAvg={avgMap.get(p.subject_name)}
+                  />
+                ))}
               </div>
-            );
-          })}
+            )}
+          </div>
+
+          {/* 모의고사 */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <p className="text-xs font-semibold text-muted-foreground">모의고사</p>
+              <span className="text-xs text-muted-foreground">· 입력된 모의고사 원점수 추세 기반</span>
+            </div>
+            {mockPredictions.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3">
+                모의고사 성적을 입력하면 예측이 표시됩니다.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {mockPredictions.map((p) => (
+                  <PredictionCard
+                    key={p.subject_name}
+                    p={p}
+                    currentAvg={mockAvgMap.get(p.subject_name)}
+                    scoreUnit="점"
+                    maxScore={mockSubjectMaxScore(p.subject_name)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {predictions.length > 0 && (
+      {hasAny && schoolPredictions.length > 0 && (
         <p className="text-xs text-muted-foreground mt-4 text-right" suppressHydrationWarning>
-          마지막 업데이트: {new Date(predictions[0].created_at).toLocaleString("ko-KR")}
+          마지막 업데이트: {new Date(schoolPredictions[0].created_at).toLocaleString("ko-KR")}
         </p>
       )}
     </div>

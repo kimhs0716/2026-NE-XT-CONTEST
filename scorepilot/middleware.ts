@@ -1,48 +1,24 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 로그인 상태에서 auth 페이지 접근 시 대시보드로
-  if (user && (pathname === "/login" || pathname === "/signup")) {
+  // Supabase 세션 쿠키 존재 여부로 인증 확인 (Edge Runtime 호환)
+  const projectRef = "eljnapkcvjcavawvvzbg";
+  const isAuthenticated =
+    request.cookies.has(`sb-${projectRef}-auth-token`) ||
+    request.cookies.has(`sb-${projectRef}-auth-token.0`);
+
+  if (isAuthenticated && (pathname === "/login" || pathname === "/signup")) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // 비로그인 상태에서 보호 경로 접근 시 로그인으로
   const protectedPaths = ["/dashboard", "/grades", "/analytics", "/strategy", "/calendar", "/mock-exam"];
-  if (!user && protectedPaths.some((p) => pathname.startsWith(p))) {
+  if (!isAuthenticated && protectedPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return supabaseResponse;
+  return NextResponse.next();
 }
 
 export const config = {
