@@ -14,9 +14,8 @@ export default function Nav({
     <header className="border-b bg-white sticky top-0 z-50">
       <div className="h-14 px-8 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <Image src="/logo.png" alt="Scorepilot" width={28} height={28} className="rounded-sm" />
-            <span className="font-bold text-lg tracking-tight">Scorepilot</span>
+          <Link href="/dashboard">
+            <Image src="/logo.png" alt="Scorepilot" width={120} height={40} className="h-8 w-auto" />
           </Link>
           <NavLinks schoolLevel={schoolLevel} />
         </div>
