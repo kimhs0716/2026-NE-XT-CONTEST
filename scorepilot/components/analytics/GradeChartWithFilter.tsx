@@ -47,12 +47,14 @@ export default function GradeChartWithFilter({
   categoryMap,
   categories,
   overallAvg,
+  mode = "grade",
 }: {
   data: DataPoint[];
   subjects: string[];
   categoryMap: Record<string, string>;
   categories: string[];
   overallAvg: number | null;
+  mode?: "grade" | "score";
 }) {
   const [selected, setSelected] = useState<string>("all");
 
@@ -113,11 +115,13 @@ export default function GradeChartWithFilter({
         {filteredAvg !== null && (
           <span className="text-sm text-muted-foreground">
             {selected === "all" ? "전체" : selected} 평균{" "}
-            <span className="font-semibold text-foreground">{filteredAvg}등급</span>
+            <span className="font-semibold text-foreground">
+              {filteredAvg}{mode === "grade" ? "등급" : "점"}
+            </span>
           </span>
         )}
       </div>
-      <GradeChart data={filteredData} subjects={filteredSubjects} />
+      <GradeChart data={filteredData} subjects={filteredSubjects} mode={mode} />
     </div>
   );
 }

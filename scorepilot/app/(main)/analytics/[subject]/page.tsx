@@ -125,6 +125,13 @@ export default async function SubjectAnalyticsPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("school_level")
+    .eq("user_id", user.id)
+    .single();
+  const schoolLevel = (profileData as { school_level: string | null } | null)?.school_level as "middle" | "high" | null;
+
   // 해당 과목의 성적/학습 데이터 조회
   const [
     { data: rawRows },
@@ -138,7 +145,7 @@ export default async function SubjectAnalyticsPage({
         id, exam_type,
         subjects ( name ),
         semesters!exam_semester ( year, semester_type ),
-        grade_records ( score, max_score, percentage )
+        grade_records ( score, max_score, percentage, grade_level )
       `)
       .eq("user_id", user.id),
     supabase
@@ -165,7 +172,7 @@ export default async function SubjectAnalyticsPage({
     exam_type: string;
     subjects: { name: string } | { name: string }[] | null;
     semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
-    grade_records: { score: number; max_score: number; percentage: number }[];
+    grade_records: { score: number; max_score: number; percentage: number; grade_level: string | null }[];
   }[]).flatMap((r) => {
     const subName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
     if (subName !== subject) return [];
@@ -180,6 +187,7 @@ export default async function SubjectAnalyticsPage({
       score: grade.score,
       maxScore: grade.max_score,
       percentage: grade.percentage,
+      gradeLevel: grade.grade_level,
       semester: formatSemester(sem.year, sem.semester_type as SemesterType),
       semOrder,
     }];
@@ -212,10 +220,23 @@ export default async function SubjectAnalyticsPage({
   const prediction = computePrediction(gradePoints);
 
   // ── 차트 데이터 (이 과목만) ──────────────────────────────────
+  function gradeToNumber(grade: string | null | undefined): number | null {
+    if (!grade) return null;
+    const t = grade.trim().toUpperCase();
+    const n = Number(t);
+    if (!isNaN(n) && n >= 1 && n <= 9) return n;
+    const map: Record<string, number> = { A: 1, B: 2, C: 3, D: 4, E: 5 };
+    return map[t] ?? null;
+  }
+
   const semesterSet = [...new Set(grades.map((g) => g.semester))];
+  const chartMode = schoolLevel === "high" ? "grade" : "score";
   const chartData = semesterSet.map((sem) => {
     const g = grades.find((r) => r.semester === sem);
-    return { semester: sem, [subject]: g?.percentage ?? null };
+    const value = schoolLevel === "high"
+      ? gradeToNumber(g?.gradeLevel)
+      : (g?.percentage ?? null);
+    return { semester: sem, [subject]: value };
   });
 
   // ── 최근 공부 기록 ────────────────────────────────────────────
@@ -281,7 +302,7 @@ export default async function SubjectAnalyticsPage({
                 평균 <span className="font-semibold text-foreground">{metrics.average}점</span>
               </span>
             </div>
-            <GradeChart data={chartData} subjects={[subject]} />
+            <GradeChart data={chartData} subjects={[subject]} mode={chartMode} />
           </div>
 
           {/* 과목 분석 */}

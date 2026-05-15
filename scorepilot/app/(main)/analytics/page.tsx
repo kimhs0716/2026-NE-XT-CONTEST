@@ -239,6 +239,13 @@ export default async function AnalyticsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("school_level")
+    .eq("user_id", user.id)
+    .single();
+  const schoolLevel = (profileData as { school_level: string | null } | null)?.school_level as "middle" | "high" | null;
+
   const [
     { data: rows },
     { data: predRows },
@@ -526,13 +533,25 @@ export default async function AnalyticsPage() {
           {/* 종합 성적 (꺾은선 그래프) */}
           <div className="rounded-2xl border bg-white p-6">
             <h2 className="text-base font-semibold mb-4">종합 성적</h2>
-            <GradeChartWithFilter
-              data={gradeChart.data}
-              subjects={gradeChart.subjects}
-              categoryMap={gradeCategoryMap}
-              categories={gradeUniqueCategories}
-              overallAvg={gradeOverallAvg}
-            />
+            {schoolLevel === "high" ? (
+              <GradeChartWithFilter
+                data={gradeChart.data}
+                subjects={gradeChart.subjects}
+                categoryMap={gradeCategoryMap}
+                categories={gradeUniqueCategories}
+                overallAvg={gradeOverallAvg}
+                mode="grade"
+              />
+            ) : (
+              <GradeChartWithFilter
+                data={chart.data}
+                subjects={chart.subjects}
+                categoryMap={categoryMap}
+                categories={uniqueCategories}
+                overallAvg={overallAvg}
+                mode="score"
+              />
+            )}
           </div>
 
           {/* 학습 피드백 */}
