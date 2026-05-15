@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Supabase 세션 쿠키 존재 여부로 인증 확인 (Edge Runtime 호환)
   const projectRef = "eljnapkcvjcavawvvzbg";
   const isAuthenticated =
     request.cookies.has(`sb-${projectRef}-auth-token`) ||
