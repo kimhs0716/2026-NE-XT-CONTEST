@@ -242,7 +242,7 @@ export default async function AnalyticsPage() {
   const { data: profileData } = await supabase
     .from("profiles")
     .select("school_level")
-    .eq("user_id", user.id)
+    .eq("id", user.id)
     .single();
   const schoolLevel = (profileData as { school_level: string | null } | null)?.school_level as "middle" | "high" | null;
 
