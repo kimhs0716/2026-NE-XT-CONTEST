@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import LogoutButton from "@/components/layout/LogoutButton";
 import NavLinks from "@/components/layout/NavLinks";
 
@@ -13,8 +14,9 @@ export default function Nav({
     <header className="border-b bg-white sticky top-0 z-50">
       <div className="h-14 px-8 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="font-bold text-lg tracking-tight">
-            ScorePilot
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <Image src="/logo.png" alt="Scorepilot" width={28} height={28} className="rounded-sm" />
+            <span className="font-bold text-lg tracking-tight">Scorepilot</span>
           </Link>
           <NavLinks schoolLevel={schoolLevel} />
         </div>
