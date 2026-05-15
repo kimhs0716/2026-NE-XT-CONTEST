@@ -15,7 +15,7 @@ export default function Nav({
       <div className="h-14 px-8 flex items-center justify-between">
         <div className="flex items-center gap-8">
           <Link href="/dashboard">
-            <Image src="/logo.png" alt="Scorepilot" width={120} height={40} className="h-8 w-auto" />
+            <Image src="/logo.png" alt="Scorepilot" width={140} height={32} className="h-8 w-auto" />
           </Link>
           <NavLinks schoolLevel={schoolLevel} />
         </div>
