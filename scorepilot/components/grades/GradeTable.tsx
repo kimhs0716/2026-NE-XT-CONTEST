@@ -36,14 +36,12 @@ type GradeRow = {
   score: number;
   maxScore: number;
   percentage: number;
-  gradeLevel: string | null;
-  weight: number | null;
   semesterYear: number;
   semesterType: SemesterType;
   memo: string | null;
 };
 
-export default function GradeTable({ grades }: { grades: GradeRow[]; subjects?: string[] }) {
+export default function GradeTable({ grades, subjects }: { grades: GradeRow[]; subjects: string[] }) {
   const [isPending, startTransition] = useTransition();
   const [memoTooltip, setMemoTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const uniqueSubjects = [...new Set(grades.map((g) => g.subject))];
@@ -103,7 +101,7 @@ export default function GradeTable({ grades }: { grades: GradeRow[]; subjects?: 
             </TableCell>
             <TableCell className="text-right">
               <span className={g.percentage >= 80 ? "text-green-600" : g.percentage >= 60 ? "text-yellow-600" : "text-red-500"}>
-                {g.percentage.toFixed(1)}%
+                {g.percentage.toFixed(1)}점
               </span>
             </TableCell>
             <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
@@ -127,7 +125,7 @@ export default function GradeTable({ grades }: { grades: GradeRow[]; subjects?: 
             </TableCell>
             <TableCell>
               <div className="flex items-center gap-1">
-                <GradeEditForm grade={g} />
+                <GradeEditForm grade={g} subjects={subjects} />
                 <Button
                   variant="ghost"
                   size="sm"

@@ -1,12 +1,16 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+const supabaseKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseKey!,
     {
       cookies: {
         getAll() {
@@ -31,13 +35,20 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // 로그인 상태에서 auth 페이지 접근 시 대시보드로
+  // Send signed-in users away from auth pages.
   if (user && (pathname === "/login" || pathname === "/signup")) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // 비로그인 상태에서 보호 경로 접근 시 로그인으로
-  const protectedPaths = ["/dashboard", "/grades", "/analytics", "/strategy", "/calendar", "/mock-exam"];
+  // Require auth for protected app routes.
+  const protectedPaths = [
+    "/dashboard",
+    "/grades",
+    "/analytics",
+    "/strategy",
+    "/calendar",
+    "/mock-exam",
+  ];
   if (!user && protectedPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL("/login", request.url));
   }

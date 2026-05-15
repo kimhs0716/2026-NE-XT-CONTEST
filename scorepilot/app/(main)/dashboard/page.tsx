@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { type SemesterType } from "@/lib/constants/grades";
 import DashboardCalendar from "@/components/dashboard/DashboardCalendar";
 
@@ -18,16 +19,42 @@ type ScheduleRow = {
   subjects: { name: string } | { name: string }[] | null;
 };
 
+type StudyTaskRow = {
+  id: string;
+  title: string;
+  due_date: string | null;
+  priority: string | null;
+  subjects: { name: string } | { name: string }[] | null;
+};
+
 const EVENT_TYPE_LABEL: Record<string, string> = {
   exam: "시험",
   assignment: "수행평가",
+  mock_exam: "모의고사",
+  study: "자습",
+  school_academy: "학원",
   other: "기타",
 };
 
 const EVENT_TYPE_COLOR: Record<string, string> = {
   exam: "bg-blue-100 text-blue-700",
   assignment: "bg-orange-100 text-orange-700",
+  mock_exam: "bg-purple-100 text-purple-700",
+  study: "bg-green-100 text-green-700",
+  school_academy: "bg-teal-100 text-teal-700",
   other: "bg-gray-100 text-gray-600",
+};
+
+const PRIORITY_LABEL: Record<string, string> = {
+  high: "높음",
+  medium: "보통",
+  low: "낮음",
+};
+
+const PRIORITY_COLOR: Record<string, string> = {
+  high: "bg-red-100 text-red-700",
+  medium: "bg-yellow-100 text-yellow-700",
+  low: "bg-green-100 text-green-700",
 };
 
 function formatDate(dateStr: string) {
@@ -80,10 +107,17 @@ function NavCard({
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const twoWeeksLater = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const sixMonthsLater = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
   const currentSemType: SemesterType =
@@ -92,31 +126,45 @@ export default async function DashboardPage() {
       : "semester_2";
   const currentYear = now.getFullYear();
 
-  const [{ data: rows }, { data: profileData }, { data: mockRows }, { data: scheduleRows }] =
+  const [
+    { data: rows },
+    { data: profileData },
+    { data: mockRows },
+    { data: scheduleRows },
+    { data: taskRows },
+  ] =
     await Promise.all([
       supabase
         .from("exams")
         .select(
           "exam_type, subjects(name), semesters!exam_semester(year, semester_type), grade_records(percentage)"
         )
-        .eq("user_id", user!.id),
+        .eq("user_id", user.id),
       supabase
         .from("profiles")
         .select("school_level, name")
-        .eq("id", user!.id)
+        .eq("id", user.id)
         .single(),
       supabase
         .from("mock_exam_records")
         .select("grade")
-        .eq("user_id", user!.id)
+        .eq("user_id", user.id)
         .not("grade", "is", null),
       supabase
         .from("schedules")
         .select("id, title, event_type, start_date, subjects(name)")
-        .eq("user_id", user!.id)
+        .eq("user_id", user.id)
         .eq("is_completed", false)
-        .order("start_date")
-        .limit(300),
+        .gte("start_date", sixMonthsAgo)
+        .lte("start_date", sixMonthsLater)
+        .order("start_date"),
+      supabase
+        .from("study_tasks")
+        .select("id, title, due_date, priority, subjects(name)")
+        .eq("user_id", user.id)
+        .eq("is_completed", false)
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .limit(6),
     ]);
 
   const schoolLevel = (profileData?.school_level as "middle" | "high") ?? null;
@@ -158,10 +206,11 @@ export default async function DashboardPage() {
       ? Math.round((mockGrades.reduce((a, b) => a + b, 0) / mockGrades.length) * 10) / 10
       : null;
 
-  const schedules = (scheduleRows as ScheduleRow[] ?? []);
-  const upcoming = schedules.filter(
-    (schedule) => schedule.start_date >= today && schedule.start_date <= twoWeeksLater
-  ).slice(0, 10);
+  const allSchedules = (scheduleRows as ScheduleRow[] ?? []);
+  const upcoming = allSchedules
+    .filter((s) => s.start_date >= today && s.start_date <= twoWeeksLater)
+    .slice(0, 10);
+  const studyTasks = (taskRows as StudyTaskRow[] ?? []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 space-y-4">
@@ -176,19 +225,17 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-6">
         {/* 왼쪽: 캘린더 */}
-        <div className="rounded-2xl border bg-white p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg">캘린더</h2>
-            <Link href="/calendar" className="text-xs text-primary hover:underline">
-              전체 보기 →
-            </Link>
-          </div>
-          <DashboardCalendar
-            schedules={schedules}
-            initialYear={now.getFullYear()}
-            initialMonth={now.getMonth()}
-          />
-        </div>
+        <DashboardCalendar
+          schedules={allSchedules.map((s) => ({
+            id: s.id,
+            title: s.title,
+            event_type: s.event_type,
+            start_date: s.start_date,
+          }))}
+          initialYear={now.getFullYear()}
+          initialMonth={now.getMonth()}
+          todayStr={today}
+        />
 
         {/* 오른쪽: 네비게이션 카드들 */}
         <div className="space-y-4">
@@ -199,7 +246,7 @@ export default async function DashboardPage() {
                 href="/grades"
                 title="내신"
                 description="시험·수행평가 성적 관리"
-                stat={currentSemAvg != null ? `${currentSemAvg}%` : "-"}
+                stat={currentSemAvg != null ? `${currentSemAvg}점` : "-"}
                 statLabel={currentSemAvg != null ? "이번 학기 평균" : undefined}
               />
               <NavCard
@@ -217,7 +264,7 @@ export default async function DashboardPage() {
               href="/grades"
               title="내신"
               description="시험·수행평가 성적 관리"
-              stat={currentSemAvg != null ? `${currentSemAvg}%` : totalExams > 0 ? `${overallAvg}%` : "-"}
+              stat={currentSemAvg != null ? `${currentSemAvg}점` : totalExams > 0 ? `${overallAvg}점` : "-"}
               statLabel={currentSemAvg != null ? "이번 학기 평균" : totalExams > 0 ? "전체 평균" : undefined}
             />
           )}
@@ -265,9 +312,50 @@ export default async function DashboardPage() {
                       >
                         {EVENT_TYPE_LABEL[s.event_type] ?? s.event_type}
                       </span>
+                      {subjectName && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600">
+                          {subjectName}
+                        </span>
+                      )}
+                      <span className="truncate">{s.title}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className="rounded-2xl border bg-white p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">이번 주 할 일</h2>
+              <Link href="/analytics" className="text-xs text-primary hover:underline">
+                관리하기 →
+              </Link>
+            </div>
+            {studyTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                진행 중인 공부 할 일이 없습니다
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {studyTasks.map((task) => {
+                  const subjectName = Array.isArray(task.subjects)
+                    ? task.subjects[0]?.name
+                    : task.subjects?.name;
+                  const displaySubjectName = subjectName ?? "기타";
+                  const priority = task.priority ?? "medium";
+                  return (
+                    <li key={task.id} className="flex items-center gap-2 text-sm">
+                      <span
+                        className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-medium ${PRIORITY_COLOR[priority] ?? PRIORITY_COLOR.medium}`}
+                      >
+                        {PRIORITY_LABEL[priority] ?? priority}
+                      </span>
                       <span className="truncate">
-                        {subjectName ? `${subjectName} ` : ""}
-                        {s.title}
+                        {displaySubjectName} · {task.title}
+                      </span>
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {task.due_date ? formatDate(task.due_date) : "마감 없음"}
                       </span>
                     </li>
                   );

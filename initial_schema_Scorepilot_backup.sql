@@ -1,25 +1,6 @@
 /*Users 기본 정보 table
 비밀번호는 저장하지 않고 Supabase Auth가 관리함*/
-
-
-drop table if exists public.mock_exam_records cascade;
-drop table if exists public.admin_logs cascade;
-drop table if exists public.score_predictions cascade;
-drop table if exists public.learning_recommendations cascade;
-drop table if exists public.weakness_reports cascade;
-drop table if exists public.analysis_reports cascade;
-drop table if exists public.study_logs cascade;
-drop table if exists public.study_tasks cascade;
-drop table if exists public.schedules cascade;
-drop table if exists public.grade_records cascade;
-drop table if exists public.exams cascade;
-drop table if exists public.subject_goals cascade;
-drop table if exists public.subjects cascade;
-drop table if exists public.semesters cascade;
-drop table if exists public.user_roles cascade;
-drop table if exists public.profiles cascade;
-
-create table public.profiles (
+create table profiles (
   --auth.users.id와 연결되는 사용자 고유 ID
   id uuid primary key references auth.users(id) on delete cascade,
   --로그인 이메일
@@ -38,7 +19,7 @@ create table public.profiles (
 
 /*관리자와 일반사용자를 구분하는 table
 admin -> 관리자, user -> 일반사용자*/
-create table public.user_roles (
+create table user_roles (
   id uuid primary key default gen_random_uuid(),
   --권한을 가진 사용자
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -51,55 +32,16 @@ create table public.user_roles (
   unique (user_id, role)
 );
 
-/*학기 정보를 저장하는 table
-*/
-create table public.semesters (
-  id uuid primary key default gen_random_uuid(),
-
-  user_id uuid not null references auth.users(id) on delete cascade,
-
-  --년도
-  year integer not null,
-
-  --1,2학기 선택
-  semester_type text not null check (
-    semester_type in ('semester_1', 'semester_2')
-  ),
-
-  --이름
-  name text not null,
-
-  --시작 날짜
-  start_date date,
-  --끝나는 날짜
-  end_date date,
-
-  --현재 학기 인지 여부
-  is_current boolean default false,
-
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now(),
-
-  unique (user_id, year, semester_type)
-);
-
 /*사용자별 과목을 저장하는 table
 */
-create table public.subjects (
+create table subjects (
   id uuid primary key default gen_random_uuid(),
   --과목 소유자
   user_id uuid not null references auth.users(id) on delete cascade,
-  --과목 해당 학기
-  semester_id uuid not null references public.semesters(id) on delete cascade,
   --과목 이름
   name text not null,
-  --과목 단위수
-  credit numeric(4,2) check (credit > 0),
   --과목 분류
   category text,
-  --평가 방식: relative=상대평가(고등 선택과목 5등급), absolute=절대평가(A/B/C)
-  --중학생 과목은 null (성취도 A~E 는 앱에서 점수 기준으로 계산)
-  evaluation_type text check (evaluation_type in ('relative', 'absolute')),
   --그래프,캘랜더 표시 색상
   color text,
   --표시 순서
@@ -111,15 +53,15 @@ create table public.subjects (
   updated_at timestamp with time zone default now(),
 
   --같은 사용자가 같은 과목명을 중복 생성하지 못하게 함
-  unique (user_id, semester_id, name)
+  unique (user_id, name)
 );
 
 /*과목별 목표 점수를 저장하는 table*/
-create table public.subject_goals (
+create table subject_goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   --과목 이름
-  subject_id uuid not null references public.subjects(id) on delete cascade,
+  subject_id uuid not null references subjects(id) on delete cascade,
   --목표 점수
   target_score numeric(5,2) not null check (target_score >= 0 and target_score <= 100),
   --목표 날짜
@@ -132,13 +74,11 @@ create table public.subject_goals (
 );
 
 /*시험 단위 저장 table*/
-create table public.exams (
+create table exams (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   --과목 id
-  subject_id uuid not null references public.subjects(id) on delete cascade,
-  --시험 학기
-  exam_semester uuid not null references public.semesters(id) on delete cascade,
+  subject_id uuid not null references subjects(id) on delete cascade,
 
   --시험 제목
   title text not null,
@@ -146,12 +86,12 @@ create table public.exams (
   exam_type text not null check (
     exam_type in ('midterm', 'final', 'assignment', 'mock_exam', 'other')
   ),
+  --시험 날짜
+  exam_date date not null,
   --만점
   max_score numeric(5,2) default 100 check (max_score > 0),
   --반영 비율
-    weight numeric(5,2) check (
-      weight >= 0 and weight <= 100
-  ),
+  weight numeric(5,2),
   --시험 관련 메모
   memo text,
 
@@ -160,12 +100,12 @@ create table public.exams (
 );
 
 /*실제 성적 점수를 저장하는 table*/
-create table public.grade_records (
+create table grade_records (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  subject_id uuid not null references public.subjects(id) on delete cascade,
+  subject_id uuid not null references subjects(id) on delete cascade,
   --연결된 시험
-  exam_id uuid references public.exams(id) on delete set null,
+  exam_id uuid references exams(id) on delete set null,
 
   --실제 점수
   score numeric(5,2) not null check (score >= 0),
@@ -186,15 +126,13 @@ create table public.grade_records (
 );
 
 /*캘랜더에 표시할 일정을 저장하는 table*/
-create table public.schedules (
+create table schedules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   --연관된 과목(선택적)
-  subject_id uuid references public.subjects(id) on delete set null,
+  subject_id uuid references subjects(id) on delete set null,
   --연관된 시험(선택적)
-  exam_id uuid references public.exams(id) on delete set null,
-  --연관된 학기(선택적)
-  semester_id uuid references public.semesters(id) on delete set null,
+  exam_id uuid references exams(id) on delete set null,
 
   --일정 제목
   title text not null,
@@ -222,12 +160,11 @@ create table public.schedules (
 );
 
 /*공부 할 일, 과제 체크리스트를 저장하는 table*/
-create table public.study_tasks (
+create table study_tasks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  subject_id uuid references public.subjects(id) on delete set null,
-  schedule_id uuid references public.schedules(id) on delete set null,
-  semester_id uuid references public.semesters(id) on delete set null,
+  subject_id uuid references subjects(id) on delete set null,
+  schedule_id uuid references schedules(id) on delete set null,
   
   --할 일 제목
   title text not null,
@@ -253,11 +190,10 @@ create table public.study_tasks (
 );
 
 /*실제 공부 기록을 저장하는 table*/
-create table public.study_logs (
+create table study_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  subject_id uuid references public.subjects(id) on delete set null,
-  semester_id uuid references public.semesters(id) on delete set null,
+  subject_id uuid references subjects(id) on delete set null,
 
   --공부 날짜
   study_date date not null,
@@ -275,18 +211,17 @@ create table public.study_logs (
 );
 
 /*성적 분석 결과를 저장하는 table*/
-create table public.analysis_reports (
+create table analysis_reports (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  semester_id uuid references public.semesters(id) on delete set null,
 
   --분석 리포트 종류
   report_type text not null check (
     report_type in ('overall', 'subject', 'monthly', 'exam')
   ),
 
-  subject_id uuid references public.subjects(id) on delete set null,
-  exam_id uuid references public.exams(id) on delete set null,
+  subject_id uuid references subjects(id) on delete set null,
+  exam_id uuid references exams(id) on delete set null,
 
   --리포트 제목
   title text not null,
@@ -301,11 +236,10 @@ create table public.analysis_reports (
 );
 
 /*취약 과목, 취약 단원, 취약 습관 등을 저장하는 table*/
-create table public.weakness_reports (
+create table weakness_reports (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  subject_id uuid not null references public.subjects(id) on delete cascade,
-  semester_id uuid references public.semesters(id) on delete set null,
+  subject_id uuid not null references subjects(id) on delete cascade,
 
   --취약점 종류
   weakness_type text check (
@@ -325,16 +259,15 @@ create table public.weakness_reports (
 );
 
 /*맞춤 학습 전략 저장 table*/
-create table public.learning_recommendations (
+create table learning_recommendations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  subject_id uuid references public.subjects(id) on delete set null,
-  semester_id uuid references public.semesters(id) on delete set null,
-  weakness_report_id uuid references public.weakness_reports(id) on delete set null,
+  subject_id uuid references subjects(id) on delete set null,
+  weakness_report_id uuid references weakness_reports(id) on delete set null,
   
   --추천 종류
   recommendation_type text check (
-    recommendation_type in ('review', 'practice', 'schedule', 'strategy', 'other')
+    recommendation_type in ('review', 'practice', 'schedule', 'habit', 'strategy', 'other')
   ),
 
   --추천 설명
@@ -343,16 +276,19 @@ create table public.learning_recommendations (
   description text not null,
   --우선순위
   priority text check (priority in ('low', 'medium', 'high')),
+  --사용자가 이 추천을 적용했는지 여부
+  is_applied boolean default false,
+  --적용 시간
+  applied_at timestamp with time zone,
 
   created_at timestamp with time zone default now()
 );
 
 /*AI 성적 예측 결과 저장 table*/
-create table public.score_predictions (
+create table score_predictions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  subject_id uuid not null references public.subjects(id) on delete cascade,
-  semester_id uuid references public.semesters(id) on delete set null,
+  subject_id uuid not null references subjects(id) on delete cascade,
 
   --예측 점수
   predicted_score numeric(5,2) check (
@@ -372,7 +308,7 @@ create table public.score_predictions (
 );
 
 /*관리자가 일반사용자 정보 수정 시 기록 table*/
-create table public.admin_logs (
+create table admin_logs (
   id uuid primary key default gen_random_uuid(),
 
   --작업한 관리자
@@ -399,32 +335,6 @@ create table public.admin_logs (
 
 
 
-/*수능 모의고사 성적 기록 table (고등학생용)*/
-create table public.mock_exam_records (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-
-  --시험 연도 및 월 (예: 2026년 6월 모의고사)
-  exam_year int not null,
-  exam_month int not null check (exam_month in (3, 4, 5, 6, 7, 9, 10, 11)),
-
-  --과목명 (국어, 수학, 영어, 한국사, 탐구1, 탐구2, 제2외국어)
-  subject text not null,
-
-  --원점수
-  raw_score int check (raw_score >= 0 and raw_score <= 100),
-  --백분위
-  percentile numeric(5,2) check (percentile >= 0 and percentile <= 100),
-  --등급 (1~9)
-  grade int check (grade >= 1 and grade <= 9),
-  --목표점수
-  target_score int check (target_score >= 0 and target_score <= 100),
-
-  created_at timestamp with time zone default now(),
-
-  unique(user_id, exam_year, exam_month, subject)
-);
-
 /*RLS에서 쓸 관리자 확인 함수
 현재 로그인된 사용자의 user_roles에 admin이 있으면 true
 없으면 false*/
@@ -446,7 +356,6 @@ $$;
 alter table public.profiles enable row level security;
 alter table public.user_roles enable row level security;
 alter table public.subjects enable row level security;
-alter table public.semesters enable row level security;
 alter table public.subject_goals enable row level security;
 alter table public.exams enable row level security;
 alter table public.grade_records enable row level security;
@@ -458,7 +367,6 @@ alter table public.weakness_reports enable row level security;
 alter table public.learning_recommendations enable row level security;
 alter table public.score_predictions enable row level security;
 alter table public.admin_logs enable row level security;
-alter table public.mock_exam_records enable row level security;
 
 /*기본 RLS 정책 구조
 일반 사용자:
@@ -591,44 +499,6 @@ using (
   or public.is_admin()
 );
 
-/*====================================================
-  semesters RLS 정책
-====================================================*/
-create policy "semesters_select_own_or_admin"
-on public.semesters
-for select
-using (
-  auth.uid() = user_id
-  or public.is_admin()
-);
-
-create policy "semesters_insert_own_or_admin"
-on public.semesters
-for insert
-with check (
-  auth.uid() = user_id
-  or public.is_admin()
-);
-
-create policy "semesters_update_own_or_admin"
-on public.semesters
-for update
-using (
-  auth.uid() = user_id
-  or public.is_admin()
-)
-with check (
-  auth.uid() = user_id
-  or public.is_admin()
-);
-
-create policy "semesters_delete_own_or_admin"
-on public.semesters
-for delete
-using (
-  auth.uid() = user_id
-  or public.is_admin()
-);
 /*====================================================
   subject_goals RLS 정책
 ====================================================*/
@@ -1068,36 +938,6 @@ using (
   public.is_admin()
 );
 
-create policy "mock_exam_records_select_own"
-on public.mock_exam_records
-for select
-using (auth.uid() = user_id);
-
-create policy "mock_exam_records_insert_own"
-on public.mock_exam_records
-for insert
-with check (auth.uid() = user_id);
-
-create policy "mock_exam_records_update_own"
-on public.mock_exam_records
-for update
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
-
-create policy "mock_exam_records_delete_own"
-on public.mock_exam_records
-for delete
-using (auth.uid() = user_id);
-
-/*====================================================
-  GRANT 설정
-  raw SQL로 테이블 생성 시 authenticated 역할에
-  접근 권한을 명시적으로 부여해야 함 (RLS가 실제 행 접근을 제어)
-====================================================*/
-grant usage on schema public to anon, authenticated;
-grant select, insert, update, delete on all tables in schema public to authenticated;
-grant usage, select on all sequences in schema public to authenticated;
-
 /*====================================================
   첫 관리자 계정 부여
   admin@example.com을 실제 관리자 이메일로 바꿔서 실행
@@ -1107,7 +947,7 @@ grant usage, select on all sequences in schema public to authenticated;
 insert into public.user_roles (user_id, role)
 select id, 'admin'
 from auth.users
-where email = 'admin@example.com'
+where email = 'admin@example.com';
 on conflict (user_id, role) do nothing;
 */
 

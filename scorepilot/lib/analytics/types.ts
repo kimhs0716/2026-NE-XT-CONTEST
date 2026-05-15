@@ -1,4 +1,5 @@
 export type RiskLevel = "insufficient" | "low" | "medium" | "high";
+export type RiskCause = "insufficient_data" | "low_average" | "recent_drop" | "high_volatility" | "stable";
 
 export type GradePoint = {
   percentage: number;
@@ -19,6 +20,7 @@ export type SubjectMetrics = {
 export type RiskAssessment = {
   riskLevel: RiskLevel;
   reasons: string[];
+  causes?: RiskCause[];
 };
 
 export type StudyStrategy = {

@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { formatSemester, type SemesterType, type ExamType } from "@/lib/constants/grades";
-import AnalysisGradeTrendChart, { type GradeTrendSourceRow } from "@/components/analytics/AnalysisGradeTrendChart";
+import GradeChart from "@/components/analytics/GradeChart";
 import AnalysisModeSelect from "@/components/analytics/AnalysisModeSelect";
 import StudyLogForm from "@/components/analytics/StudyLogForm";
 import StudyLogDeleteButton from "@/components/analytics/StudyLogDeleteButton";
@@ -14,26 +15,20 @@ import { computeStrategy } from "@/lib/analytics/strategy";
 import { computePrediction } from "@/lib/analytics/prediction";
 import type { GradePoint } from "@/lib/analytics/types";
 import { cn } from "@/lib/utils";
+import { decodeSubjectSegment } from "@/lib/subject-route";
 
 const RISK_CONFIG = {
-  high: { label: "위험", cls: "bg-red-100 text-red-700" },
-  medium: { label: "주의", cls: "bg-yellow-100 text-yellow-700" },
-  low: { label: "안정", cls: "bg-green-100 text-green-700" },
+  high:         { label: "위험",      cls: "bg-red-100 text-red-700" },
+  medium:       { label: "주의",      cls: "bg-yellow-100 text-yellow-700" },
+  low:          { label: "안정",      cls: "bg-green-100 text-green-700" },
   insufficient: { label: "데이터 부족", cls: "bg-gray-100 text-gray-500" },
 };
 
-const TREND_LABEL: Record<string, string> = {
-  up: "상승",
-  down: "하락",
-  stable: "유지",
-  new: "신규",
+const TREND_ICON: Record<string, string> = {
+  up: "↑", down: "↓", stable: "→", new: "•",
 };
-
 const TREND_COLOR: Record<string, string> = {
-  up: "text-green-600",
-  down: "text-red-500",
-  stable: "text-muted-foreground",
-  new: "text-muted-foreground",
+  up: "text-green-600", down: "text-red-500", stable: "text-muted-foreground", new: "text-muted-foreground",
 };
 
 type StudyLogRow = {
@@ -44,7 +39,7 @@ type StudyLogRow = {
   difficulty: string | null;
   concentration_level: number | null;
   content: string | null;
-  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
+  subjects: { name: string } | { name: string }[] | null;
 };
 
 type StudyTaskRow = {
@@ -56,26 +51,13 @@ type StudyTaskRow = {
   priority: string | null;
   is_completed: boolean;
   memo: string | null;
-  subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
+  subjects: { name: string } | { name: string }[] | null;
 };
 
 type SubjectRow = {
   id: string;
   name: string;
-  category: string | null;
 };
-
-function resolveCategory(subject: { name: string; category: string | null } | undefined): string {
-  return subject?.category?.trim() || "미분류";
-}
-
-function withTrendOrder<T extends { semOrder: number; createdAt: string }>(
-  rows: T[],
-): (T & { trendOrder: number })[] {
-  return [...rows]
-    .sort((a, b) => a.semOrder - b.semOrder || a.createdAt.localeCompare(b.createdAt))
-    .map((row, index) => ({ ...row, trendOrder: row.semOrder * 1000 + index }));
-}
 
 function formatStudyDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -85,9 +67,9 @@ function formatStudyDate(dateStr: string): string {
 function formatDuration(minutes: number | null): string {
   if (minutes == null) return "-";
   if (minutes < 60) return `${minutes}분`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest > 0 ? `${hours}시간 ${rest}분` : `${hours}시간`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
 }
 
 const difficultyLabels: Record<string, string> = {
@@ -95,6 +77,35 @@ const difficultyLabels: Record<string, string> = {
   normal: "보통",
   hard: "어려움",
 };
+
+const subjectBadgePalettes = [
+  "bg-blue-100 text-blue-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-orange-100 text-orange-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-indigo-100 text-indigo-700",
+];
+
+const difficultyBadgeClass: Record<string, string> = {
+  easy: "bg-emerald-100 text-emerald-700",
+  normal: "bg-amber-100 text-amber-700",
+  hard: "bg-rose-100 text-rose-700",
+};
+
+const concentrationBadgeClass: Record<number, string> = {
+  1: "bg-rose-100 text-rose-700",
+  2: "bg-orange-100 text-orange-700",
+  3: "bg-amber-100 text-amber-700",
+  4: "bg-lime-100 text-lime-700",
+  5: "bg-emerald-100 text-emerald-700",
+};
+
+function subjectBadgeClass(subject: string): string {
+  if (subject === "-") return "bg-slate-100 text-slate-600";
+  const hash = [...subject].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return subjectBadgePalettes[hash % subjectBadgePalettes.length];
+}
 
 const priorityLabels: Record<string, string> = {
   low: "낮음",
@@ -108,11 +119,13 @@ export default async function SubjectAnalyticsPage({
   params: Promise<{ subject: string }>;
 }) {
   const { subject: encodedSubject } = await params;
-  const category = decodeURIComponent(encodedSubject);
+  const subject = decodeSubjectSegment(encodedSubject);
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
+  // 해당 과목의 성적/학습 데이터 조회
   const [
     { data: rawRows },
     { data: studyLogRows },
@@ -122,119 +135,106 @@ export default async function SubjectAnalyticsPage({
     supabase
       .from("exams")
       .select(`
-        id, exam_type, created_at,
-        subjects ( name, category ),
+        id, exam_type,
+        subjects ( name ),
         semesters!exam_semester ( year, semester_type ),
-        grade_records ( score, max_score, percentage, grade_level )
+        grade_records ( score, max_score, percentage )
       `)
-      .eq("user_id", user!.id),
+      .eq("user_id", user.id),
     supabase
       .from("study_logs")
-      .select("id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name, category )")
-      .eq("user_id", user!.id)
+      .select(`id, subject_id, study_date, duration_minutes, difficulty, concentration_level, content, subjects ( name )`)
+      .eq("user_id", user.id)
       .order("study_date", { ascending: false })
       .limit(20),
     supabase
       .from("study_tasks")
-      .select("id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name, category )")
-      .eq("user_id", user!.id)
-      .eq("is_completed", false)
+      .select(`id, subject_id, title, task_type, due_date, priority, is_completed, memo, subjects ( name )`)
+      .eq("user_id", user.id)
       .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(20),
+      .limit(40),
     supabase
       .from("subjects")
-      .select("id, name, category")
-      .eq("user_id", user!.id)
+      .select("id, name")
+      .eq("user_id", user.id)
       .order("name"),
   ]);
 
   const grades = ((rawRows ?? []) as {
     id: string;
     exam_type: string;
-    created_at: string;
-    subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
+    subjects: { name: string } | { name: string }[] | null;
     semesters: { year: number; semester_type: string } | { year: number; semester_type: string }[] | null;
-    grade_records: { score: number; max_score: number; percentage: number; grade_level: string | null }[];
-  }[]).flatMap((row) => {
-    const subject = Array.isArray(row.subjects) ? row.subjects[0] : row.subjects;
-    if (!subject?.name || resolveCategory(subject) !== category) return [];
-    const grade = row.grade_records[0];
+    grade_records: { score: number; max_score: number; percentage: number }[];
+  }[]).flatMap((r) => {
+    const subName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+    if (subName !== subject) return [];
+    const grade = r.grade_records[0];
     if (!grade) return [];
-    const semester = Array.isArray(row.semesters) ? row.semesters[0] : row.semesters;
-    if (!semester) return [];
-    const semOrder = semester.year * 10 + (semester.semester_type === "semester_2" ? 2 : 1);
+    const sem = Array.isArray(r.semesters) ? r.semesters[0] : r.semesters;
+    if (!sem) return [];
+    const semOrder = sem.year * 10 + (sem.semester_type === "semester_2" ? 2 : 1);
     return [{
-      examId: row.id,
-      subjectName: subject.name,
-      examType: row.exam_type as ExamType,
+      examId: r.id,
+      examType: r.exam_type as ExamType,
       score: grade.score,
       maxScore: grade.max_score,
       percentage: grade.percentage,
-      gradeLevel: grade.grade_level,
-      semesterKey: `${semester.year}-${semester.semester_type as SemesterType}`,
-      semester: formatSemester(semester.year, semester.semester_type as SemesterType),
+      semester: formatSemester(sem.year, sem.semester_type as SemesterType),
       semOrder,
-      createdAt: row.created_at,
     }];
-  });
+  }).sort((a, b) => a.semOrder - b.semOrder);
 
   if (grades.length === 0) notFound();
 
   const subjectNames = [
     ...new Set(
       ((rawRows ?? []) as {
-        subjects: { name: string; category: string | null } | { name: string; category: string | null }[] | null;
+        subjects: { name: string } | { name: string }[] | null;
       }[])
-        .map((row) => resolveCategory(Array.isArray(row.subjects) ? row.subjects[0] : row.subjects ?? undefined))
-        .filter(Boolean),
+        .map((r) => (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name))
+        .filter((name): name is string => Boolean(name)),
     ),
   ].sort((a, b) => a.localeCompare(b, "ko"));
-
   const subjectOptions = [...new Map(
     ((subjectRows ?? []) as SubjectRow[]).map((subject) => [subject.name, subject]),
   ).values()];
-  const categorySubjectOptions = subjectOptions.filter((subject) => resolveCategory(subject) === category);
-  const defaultSubjectName = categorySubjectOptions[0]?.name;
 
-  const orderedGrades = withTrendOrder(grades);
-  const gradePoints: GradePoint[] = orderedGrades.map((grade) => ({
-    percentage: grade.percentage,
-    semOrder: grade.trendOrder,
+  // ── 분석 계산 ────────────────────────────────────────────────
+  const gradePoints: GradePoint[] = grades.map((g) => ({
+    percentage: g.percentage,
+    semOrder: g.semOrder,
   }));
 
-  const metrics = computeMetrics(category, gradePoints);
+  const metrics = computeMetrics(subject, gradePoints);
   const risk = computeRisk(metrics);
   const strategy = computeStrategy(metrics, risk);
   const prediction = computePrediction(gradePoints);
 
-  const trendRows: GradeTrendSourceRow[] = grades.map((grade) => ({
-    subjectName: grade.subjectName,
-    category,
-    semesterKey: grade.semesterKey,
-    semesterLabel: grade.semester,
-    semOrder: grade.semOrder,
-    examType: grade.examType,
-    gradeLevel: grade.gradeLevel,
-    createdAt: grade.createdAt,
-  }));
+  // ── 차트 데이터 (이 과목만) ──────────────────────────────────
+  const semesterSet = [...new Set(grades.map((g) => g.semester))];
+  const chartData = semesterSet.map((sem) => {
+    const g = grades.find((r) => r.semester === sem);
+    return { semester: sem, [subject]: g?.percentage ?? null };
+  });
 
+  // ── 최근 공부 기록 ────────────────────────────────────────────
   const recentStudyLogs = ((studyLogRows ?? []) as StudyLogRow[])
-    .flatMap((row) => {
-      const subject = Array.isArray(row.subjects) ? row.subjects[0] : row.subjects;
-      const subjectName = subject?.name;
-      if (!subjectName || resolveCategory(subject) !== category) return [];
-      return [{ ...row, subject: subjectName }];
+    .flatMap((r) => {
+      const subjectName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+      if (subjectName !== subject) return [];
+      return [{ ...r, subject: subjectName }];
     })
     .slice(0, 10);
 
-  const pendingStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[])
-    .flatMap((row) => {
-      const subject = Array.isArray(row.subjects) ? row.subjects[0] : row.subjects;
-      const subjectName = subject?.name;
-      if (!subjectName || resolveCategory(subject) !== category) return [];
-      return [{ ...row, subject: subjectName }];
-    })
-    .slice(0, 3);
+  const subjectStudyTasks = ((studyTaskRows ?? []) as StudyTaskRow[])
+    .flatMap((r) => {
+      const subjectName = Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name;
+      if (subjectName !== subject) return [];
+      return [{ ...r, subject: subjectName }];
+    });
+  const pendingStudyTasks = subjectStudyTasks.filter((task) => !task.is_completed);
+  const completedStudyTasks = subjectStudyTasks.filter((task) => task.is_completed).slice(0, 8);
 
   const riskCfg = RISK_CONFIG[risk.riskLevel];
   const deltaColor =
@@ -244,55 +244,66 @@ export default async function SubjectAnalyticsPage({
     : "text-muted-foreground";
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Link href="/analytics" className="text-sm text-muted-foreground hover:text-foreground">
+    <div className="max-w-7xl mx-auto px-4 space-y-6">
+      {/* 헤더 */}
+      <div className="flex items-start justify-between">
+        <div>
+          <Link
+            href="/analytics"
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
             ← 분석
           </Link>
-          <h1 className="mt-1 text-2xl font-bold">{category}</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <h1 className="text-2xl font-bold mt-1">{subject}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             {grades[grades.length - 1]?.semester} 기준
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <span className={cn("rounded-full px-3 py-1 text-sm font-medium", riskCfg.cls)}>
+        <div className="flex items-center gap-3">
+          <span className={cn("text-sm px-3 py-1 rounded-full font-medium", riskCfg.cls)}>
             {riskCfg.label}
           </span>
-          <AnalysisModeSelect subjects={subjectNames} currentSubject={category} />
+          <AnalysisModeSelect subjects={subjectNames} currentSubject={subject} />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 items-start xl:grid-cols-[minmax(0,3fr)_minmax(320px,2fr)]">
-        <div className="min-w-0 space-y-6">
-          <div className="min-w-0 rounded-2xl border bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
+      {/* 2컬럼 레이아웃 */}
+      <div className="grid grid-cols-[3fr_2fr] gap-6 items-start">
+
+        {/* ── 왼쪽: 성적 추이 + 분석 ── */}
+        <div className="space-y-6">
+
+          {/* 성적 추이 */}
+          <div className="rounded-2xl border bg-white p-6">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold">성적 추이</h2>
               <span className="text-sm text-muted-foreground">
-                평균 <span className="font-semibold text-foreground">{metrics.average}%</span>
+                평균 <span className="font-semibold text-foreground">{metrics.average}점</span>
               </span>
             </div>
-            <AnalysisGradeTrendChart rows={trendRows} categories={[category]} />
+            <GradeChart data={chartData} subjects={[subject]} />
           </div>
 
-          <div className="min-w-0 space-y-5 rounded-2xl border bg-white p-6">
-            <h2 className="text-base font-semibold">분류 분석</h2>
+          {/* 과목 분석 */}
+          <div className="rounded-2xl border bg-white p-6 space-y-5">
+            <h2 className="text-base font-semibold">과목 분석</h2>
 
+            {/* 수치 그리드 */}
             <div className="grid grid-cols-3 gap-4 text-center">
               <div className="rounded-xl bg-muted/30 p-3">
-                <p className="mb-1 text-xs text-muted-foreground">평균</p>
-                <p className="text-xl font-bold">{metrics.average}%</p>
+                <p className="text-xs text-muted-foreground mb-1">평균</p>
+                <p className="text-xl font-bold">{metrics.average}점</p>
               </div>
               <div className="rounded-xl bg-muted/30 p-3">
-                <p className="mb-1 text-xs text-muted-foreground">최근 점수</p>
-                <p className="text-xl font-bold">{metrics.latestScore}%</p>
+                <p className="text-xs text-muted-foreground mb-1">최근 점수</p>
+                <p className="text-xl font-bold">{metrics.latestScore}점</p>
               </div>
               <div className="rounded-xl bg-muted/30 p-3">
-                <p className="mb-1 text-xs text-muted-foreground">최근 변화</p>
+                <p className="text-xs text-muted-foreground mb-1">최근 변화</p>
                 <p className={cn("text-xl font-bold", deltaColor)}>
                   {metrics.recentDelta === null
-                    ? "-"
-                    : `${metrics.recentDelta > 0 ? "+" : ""}${metrics.recentDelta}%`}
+                    ? "—"
+                    : `${metrics.recentDelta > 0 ? "+" : ""}${metrics.recentDelta}점`}
                 </p>
               </div>
             </div>
@@ -302,12 +313,12 @@ export default async function SubjectAnalyticsPage({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">추세</span>
                   <span className={cn("font-semibold", TREND_COLOR[metrics.trend])}>
-                    {TREND_LABEL[metrics.trend]}
+                    {TREND_ICON[metrics.trend]} {metrics.trend === "up" ? "상승" : metrics.trend === "down" ? "하락" : metrics.trend === "stable" ? "유지" : "신규"}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">변동성</span>
-                  <span className="font-medium">{metrics.volatility}%</span>
+                  <span className="font-medium">{metrics.volatility}점</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">기록 수</span>
@@ -316,111 +327,144 @@ export default async function SubjectAnalyticsPage({
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">위험도</span>
-                  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", riskCfg.cls)}>
+                  <span className="text-muted-foreground">관리 상태</span>
+                  <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", riskCfg.cls)}>
                     {riskCfg.label}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">우선순위</span>
+                  <span className="text-muted-foreground">학습 우선순위</span>
                   <span className="font-medium">{strategy.priority}순위</span>
                 </div>
               </div>
             </div>
 
+            {/* 위험 사유 */}
             {risk.reasons.length > 0 && (
               <div className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                 {risk.reasons[0]}
               </div>
             )}
 
+            {/* 추천 전략 */}
             <div className="rounded-lg border-l-4 border-primary/40 bg-primary/5 px-4 py-3">
-              <p className="mb-0.5 text-xs text-muted-foreground">추천 전략</p>
+              <p className="text-xs text-muted-foreground mb-0.5">추천 전략</p>
               <p className="text-sm font-medium">{strategy.action}</p>
             </div>
           </div>
         </div>
 
-        <div className="min-w-0 space-y-6 xl:sticky xl:top-24">
+        {/* ── 오른쪽: 공부 기록 + AI 예측 ── */}
+        <div className="space-y-6 sticky top-24">
+
+          {/* 공부 기록 */}
           <div className="rounded-2xl border bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold">최근 공부 기록</h2>
-              <StudyLogForm subjects={categorySubjectOptions} defaultSubjectName={defaultSubjectName} />
+              <StudyLogForm subjects={subjectOptions} defaultSubjectName={subject} />
             </div>
             {recentStudyLogs.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                이 분류의 공부 기록을 추가하면 여기에 표시됩니다.
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                이 과목의 공부 기록을 추가하면 여기에 표시됩니다.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
+              <div className="h-[240px] overflow-y-auto pr-1">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                  <tr className="border-b text-muted-foreground text-left">
                     <th className="pb-2 font-medium">날짜</th>
                     <th className="pb-2 font-medium">과목</th>
-                    <th className="pb-2 text-right font-medium">공부 시간</th>
-                    <th className="pb-2 text-right font-medium">난이도</th>
-                    <th className="pb-2 text-right font-medium">집중도</th>
-                    <th className="pb-2 text-right font-medium">관리</th>
+                    <th className="pb-2 font-medium text-right">공부 시간</th>
+                    <th className="pb-2 font-medium text-right">난이도</th>
+                    <th className="pb-2 font-medium text-right">집중도</th>
+                    <th className="pb-2 font-medium text-right">관리</th>
                   </tr>
-                </thead>
-                <tbody>
-                  {recentStudyLogs.map((log) => (
-                    <tr key={log.id} className="border-b last:border-0">
-                      <td className="whitespace-nowrap py-2 text-xs text-muted-foreground">
-                        {formatStudyDate(log.study_date)}
+                  </thead>
+                  <tbody>
+                  {recentStudyLogs.map((r, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-2 text-muted-foreground text-xs whitespace-nowrap">
+                        {formatStudyDate(r.study_date)}
                       </td>
-                      <td className="py-2 font-medium">{log.subject}</td>
-                      <td className="py-2 text-right text-xs">{formatDuration(log.duration_minutes)}</td>
+                      <td className="py-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${subjectBadgeClass(r.subject)}`}
+                        >
+                          {r.subject}
+                        </span>
+                      </td>
                       <td className="py-2 text-right text-xs">
-                        {log.difficulty ? difficultyLabels[log.difficulty] ?? log.difficulty : "-"}
+                        {formatDuration(r.duration_minutes)}
+                      </td>
+                      <td className="py-2 text-right text-xs">
+                        {r.difficulty ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 font-semibold ${difficultyBadgeClass[r.difficulty] ?? "bg-slate-100 text-slate-600"}`}
+                          >
+                            {difficultyLabels[r.difficulty] ?? r.difficulty}
+                          </span>
+                        ) : "-"}
                       </td>
                       <td className="py-2 text-right text-xs font-semibold">
-                        {log.concentration_level != null ? `${log.concentration_level}/5` : "-"}
+                        {r.concentration_level != null ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 ${concentrationBadgeClass[r.concentration_level] ?? "bg-slate-100 text-slate-600"}`}
+                          >
+                            {r.concentration_level}/5
+                          </span>
+                        ) : "-"}
                       </td>
                       <td className="py-2">
                         <div className="flex items-center justify-end gap-1">
                           <StudyLogForm
-                            subjects={categorySubjectOptions}
-                            defaultSubjectName={log.subject}
+                            subjects={subjectOptions}
+                            defaultSubjectName={subject}
                             triggerLabel="수정"
                             log={{
-                              id: log.id,
-                              subjectId: log.subject_id,
-                              studyDate: log.study_date,
-                              durationMinutes: log.duration_minutes,
-                              difficulty: log.difficulty,
-                              concentrationLevel: log.concentration_level,
-                              content: log.content,
+                              id: r.id,
+                              subjectId: r.subject_id,
+                              studyDate: r.study_date,
+                              durationMinutes: r.duration_minutes,
+                              difficulty: r.difficulty,
+                              concentrationLevel: r.concentration_level,
+                              content: r.content,
                             }}
                           />
-                          <StudyLogDeleteButton logId={log.id} />
+                          <StudyLogDeleteButton logId={r.id} />
                         </div>
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             )}
-
-            {pendingStudyTasks.length > 0 ? (
+            {pendingStudyTasks.length > 0 && (
               <div className="mt-4 border-t pt-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground">진행 중인 할 일</p>
-                  <StudyTaskForm subjects={categorySubjectOptions} defaultSubjectName={defaultSubjectName} />
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-muted-foreground">진행 중 할 일</p>
+                  <StudyTaskForm subjects={subjectOptions} defaultSubjectName={subject} />
                 </div>
-                <div className="space-y-2">
+                <div className="h-[240px] space-y-2 overflow-y-auto pr-1">
                   {pendingStudyTasks.map((task) => (
                     <div key={task.id} className="flex items-center justify-between gap-3 text-xs">
                       <div className="min-w-0">
-                        <p className="truncate">{task.title}</p>
+                        <p className="truncate">
+                          <span
+                            className={`mr-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${subjectBadgeClass(subject)}`}
+                          >
+                            {subject}
+                          </span>
+                          {task.title}
+                        </p>
                         <p className="text-muted-foreground">
                           {task.priority ? priorityLabels[task.priority] ?? task.priority : "우선순위 없음"}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <StudyTaskForm
-                          subjects={categorySubjectOptions}
-                          defaultSubjectName={task.subject}
+                          subjects={subjectOptions}
+                          defaultSubjectName={subject}
                           triggerLabel="수정"
                           task={{
                             id: task.id,
@@ -438,16 +482,43 @@ export default async function SubjectAnalyticsPage({
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="mt-4 flex items-center justify-between border-t pt-4">
+            )}
+            {pendingStudyTasks.length === 0 && (
+              <div className="mt-4 border-t pt-4 flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">진행 중인 공부 할 일이 없습니다.</p>
-                <StudyTaskForm subjects={categorySubjectOptions} defaultSubjectName={defaultSubjectName} />
+                <StudyTaskForm subjects={subjectOptions} defaultSubjectName={subject} />
+              </div>
+            )}
+            {completedStudyTasks.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="mb-2 text-xs font-semibold text-muted-foreground">최근 완료한 할 일</p>
+                <div className="space-y-2">
+                  {completedStudyTasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between gap-3 text-xs opacity-80">
+                      <div className="min-w-0">
+                        <p className="truncate line-through">
+                          <span
+                            className={`mr-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold no-underline ${subjectBadgeClass(subject)}`}
+                          >
+                            {subject}
+                          </span>
+                          {task.title}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {task.priority ? priorityLabels[task.priority] ?? task.priority : "우선순위 없음"}
+                        </p>
+                      </div>
+                      <StudyTaskActions taskId={task.id} isCompleted={task.is_completed} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
-          <div className="space-y-4 rounded-2xl border bg-white p-6">
-            <h2 className="text-base font-semibold">AI 성적 예측</h2>
+          {/* 성적 예측 */}
+          <div className="rounded-2xl border bg-white p-6 space-y-4">
+            <h2 className="text-base font-semibold">성적 예측</h2>
             {prediction ? (
               <>
                 <div className="flex items-end gap-3">
@@ -455,29 +526,30 @@ export default async function SubjectAnalyticsPage({
                     "text-4xl font-bold",
                     prediction.predictedScore >= 80 ? "text-green-600"
                     : prediction.predictedScore >= 60 ? "text-yellow-600"
-                    : "text-red-500",
+                    : "text-red-500"
                   )}>
-                    {prediction.predictedScore}%
+                    {prediction.predictedScore}점
                   </span>
                   {metrics.average !== null && (
                     <span className={cn(
-                      "pb-1 text-sm font-medium",
+                      "text-sm font-medium pb-1",
                       prediction.predictedScore > metrics.average ? "text-green-600"
                       : prediction.predictedScore < metrics.average ? "text-red-500"
-                      : "text-muted-foreground",
+                      : "text-muted-foreground"
                     )}>
                       {prediction.predictedScore > metrics.average ? "+" : ""}
-                      {(prediction.predictedScore - metrics.average).toFixed(1)}%
+                      {(prediction.predictedScore - metrics.average).toFixed(1)}점
                     </span>
                   )}
                 </div>
 
+                {/* 신뢰도 바 */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>신뢰도</span>
                     <span>{Math.round(prediction.confidence * 100)}%</span>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                     <div
                       className="h-full rounded-full bg-primary transition-all"
                       style={{ width: `${prediction.confidence * 100}%` }}
@@ -485,13 +557,13 @@ export default async function SubjectAnalyticsPage({
                   </div>
                 </div>
 
-                <p className="text-xs leading-relaxed text-muted-foreground">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   {prediction.basis}
                 </p>
               </>
             ) : (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                성적 기록이 더 쌓이면 예측할 수 있습니다.
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                성적 기록이 쌓이면 다음 점수를 예측할 수 있습니다.
               </p>
             )}
           </div>

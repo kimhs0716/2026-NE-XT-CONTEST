@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useEffect, useState, startTransition } from "react";
+import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addStudyLog, updateStudyLog } from "@/lib/actions/study";
+import { commonSubjects } from "@/lib/constants/grades";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,9 +51,20 @@ export default function StudyLogForm({
   const [state, action, pending] = useActionState(log ? updateStudyLog : addStudyLog, null);
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const defaultSubjectId =
-    subjects.find((subject) => subject.name === defaultSubjectName)?.id ?? subjects[0]?.id ?? "";
-  const [subjectId, setSubjectId] = useState(log?.subjectId ?? defaultSubjectId);
+  const handledSuccessRef = useRef(false);
+  const subjectByName = new Map(subjects.map((subject) => [subject.name, subject]));
+  const subjectNameById = new Map(subjects.map((subject) => [subject.id, subject.name]));
+  const initialSubjectName = log?.subjectId
+    ? subjectNameById.get(log.subjectId) ?? ""
+    : defaultSubjectName ?? commonSubjects[0];
+  const initialSubjectMode = commonSubjects.includes(initialSubjectName) ? "select" : "custom";
+  const [selectedSubjectName, setSelectedSubjectName] = useState(
+    initialSubjectMode === "select" ? initialSubjectName : commonSubjects[0],
+  );
+  const [subjectMode, setSubjectMode] = useState<"select" | "custom">(initialSubjectMode);
+  const [customSubject, setCustomSubject] = useState(
+    initialSubjectMode === "custom" ? initialSubjectName : "",
+  );
   const [studyDate, setStudyDate] = useState(log?.studyDate ?? todayString);
   const [duration, setDuration] = useState(log?.durationMinutes != null ? String(log.durationMinutes) : "");
   const [difficulty, setDifficulty] = useState(log?.difficulty ?? "normal");
@@ -60,54 +72,83 @@ export default function StudyLogForm({
   const [content, setContent] = useState(log?.content ?? "");
 
   useEffect(() => {
-    if (state?.success) {
-      queueMicrotask(() => {
-        setOpen(false);
-        if (!log) {
-          setSubjectId(defaultSubjectId);
-          setStudyDate(todayString());
-          setDuration("");
-          setDifficulty("normal");
-          setConcentration("3");
-          setContent("");
-        }
-        router.refresh();
-      });
+    if (!state?.success) {
+      handledSuccessRef.current = false;
+      return;
     }
-  }, [state, defaultSubjectId, log, router]);
+    if (handledSuccessRef.current) return;
+
+    handledSuccessRef.current = true;
+    setOpen(false);
+    if (!log) {
+      setSelectedSubjectName(commonSubjects[0]);
+      setSubjectMode("select");
+      setCustomSubject("");
+      setStudyDate(todayString());
+      setDuration("");
+      setDifficulty("normal");
+      setConcentration("3");
+      setContent("");
+    }
+    router.refresh();
+  }, [state, log, router]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={<Button size="sm" variant={log ? "ghost" : "default"}>{triggerLabel ?? (log ? "수정" : "+ 공부 기록")}</Button>}
-      />
+      <DialogTrigger render={<Button size="sm" variant={log ? "ghost" : "default"}>{triggerLabel ?? (log ? "수정" : "+ 공부 기록")}</Button>} />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{log ? "공부 기록 수정" : "공부 기록 추가"}</DialogTitle>
         </DialogHeader>
         <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            startTransition(() => action(new FormData(event.currentTarget)));
+          onSubmit={(e) => {
+            e.preventDefault();
+            handledSuccessRef.current = false;
+            startTransition(() => action(new FormData(e.currentTarget)));
           }}
-          className="mt-2 space-y-4"
+          className="space-y-4 mt-2"
         >
           {log && <input type="hidden" name="study_log_id" value={log.id} />}
+          <input
+            type="hidden"
+            name="subject_id"
+            value={subjectMode === "select" ? subjectByName.get(selectedSubjectName)?.id ?? "" : ""}
+          />
+          <input
+            type="hidden"
+            name="subject_name"
+            value={subjectMode === "select" ? selectedSubjectName : customSubject.trim()}
+          />
           <div className="space-y-2">
             <Label>과목</Label>
             <select
-              name="subject_id"
-              value={subjectId}
-              onChange={(event) => setSubjectId(event.target.value)}
+              value={subjectMode === "custom" ? "" : selectedSubjectName}
+              onChange={(e) => {
+                if (!e.target.value) {
+                  setSubjectMode("custom");
+                  setCustomSubject("");
+                  return;
+                }
+                setSubjectMode("select");
+                setSelectedSubjectName(e.target.value);
+                setCustomSubject("");
+              }}
               className={selectClass}
             >
-              <option value="">과목 없음</option>
-              {subjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name}
+              {commonSubjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject}
                 </option>
               ))}
+              <option value="">기타(직접 입력)</option>
             </select>
+            {subjectMode === "custom" ? (
+              <Input
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+                placeholder="예: 기가, 정보, 한문"
+              />
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -118,7 +159,7 @@ export default function StudyLogForm({
                 name="study_date"
                 type="date"
                 value={studyDate}
-                onChange={(event) => setStudyDate(event.target.value)}
+                onChange={(e) => setStudyDate(e.target.value)}
                 required
               />
             </div>
@@ -131,7 +172,7 @@ export default function StudyLogForm({
                 min="0"
                 placeholder="90"
                 value={duration}
-                onChange={(event) => setDuration(event.target.value)}
+                onChange={(e) => setDuration(e.target.value)}
                 required
               />
             </div>
@@ -143,7 +184,7 @@ export default function StudyLogForm({
               <select
                 name="difficulty"
                 value={difficulty}
-                onChange={(event) => setDifficulty(event.target.value)}
+                onChange={(e) => setDifficulty(e.target.value)}
                 className={selectClass}
               >
                 <option value="easy">쉬움</option>
@@ -156,7 +197,7 @@ export default function StudyLogForm({
               <select
                 name="concentration_level"
                 value={concentration}
-                onChange={(event) => setConcentration(event.target.value)}
+                onChange={(e) => setConcentration(e.target.value)}
                 className={selectClass}
               >
                 {[1, 2, 3, 4, 5].map((value) => (
@@ -175,7 +216,7 @@ export default function StudyLogForm({
               name="content"
               placeholder="예: 오답 정리, 개념 복습"
               value={content}
-              onChange={(event) => setContent(event.target.value)}
+              onChange={(e) => setContent(e.target.value)}
             />
           </div>
 
