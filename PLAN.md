@@ -8,7 +8,7 @@
 
 1. `create-next-app`으로 Next.js 16 프로젝트 생성 (TypeScript, Tailwind, App Router)
 2. Supabase, shadcn/ui, Recharts, `@google/genai` 패키지 설치
-3. Supabase 대시보드에서 테이블 생성 및 RLS 설정 (`initial_schema_Scorepilot.sql`)
+3. Supabase 대시보드에서 12개 테이블 생성 및 RLS 설정 (`initial_schema_Scorepilot.sql`)
 4. 브라우저용 / 서버용 Supabase 클라이언트 파일 분리 생성
 5. `.env.local`에 Supabase 및 Gemini 환경 변수 등록
 

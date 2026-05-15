@@ -112,7 +112,8 @@ RLS(Row Level Security) 정책이 적용되어 각 사용자는 자신의 데이
 | `profiles` | 사용자 기본 정보 (이름, 학교급) |
 | `subjects` | 사용자별 과목 목록 |
 | `subject_goals` | 과목별 목표 점수 |
-| `exams` | 시험 단위 (종류, 날짜, 만점) |
+| `semesters` | 학기 단위 (연도, 학기 구분) |
+| `exams` | 시험 단위 (종류, 날짜, 만점, 학기 참조) |
 | `grade_records` | 실제 성적 점수 (`percentage` 자동 계산 컬럼 포함) |
 | `schedules` | 캘린더 일정 (시험/수행평가/학원 등) |
 | `study_tasks` | 공부 할 일 체크리스트 |
@@ -191,7 +192,9 @@ npm install
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+# 아래 두 키 중 하나를 사용 (Supabase 대시보드 → Project Settings → API)
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key  ← 구버전 키명도 지원
 
 # Gemini AI 피드백 (선택 — 미설정 시 규칙 기반 fallback 동작)
 GEMINI_API_KEY=your_gemini_api_key
@@ -212,7 +215,7 @@ npm run dev
 
 **기반**
 - [x] 기획 및 화면 설계
-- [x] DB 설계 (11개 테이블 + RLS)
+- [x] DB 설계 (12개 테이블 + RLS)
 
 **Phase 1 — 셋팅**
 - [x] Next.js 16 프로젝트 생성 (TypeScript, Tailwind, App Router)
