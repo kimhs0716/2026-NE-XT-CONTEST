@@ -1,59 +1,23 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const supabaseKey =
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-export async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    supabaseKey!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Send signed-in users away from auth pages.
-  if (user && (pathname === "/login" || pathname === "/signup")) {
+  const projectRef = "eljnapkcvjcavawvvzbg";
+  const isAuthenticated =
+    request.cookies.has(`sb-${projectRef}-auth-token`) ||
+    request.cookies.has(`sb-${projectRef}-auth-token.0`);
+
+  if (isAuthenticated && (pathname === "/login" || pathname === "/signup")) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // Require auth for protected app routes.
-  const protectedPaths = [
-    "/dashboard",
-    "/grades",
-    "/analytics",
-    "/strategy",
-    "/calendar",
-    "/mock-exam",
-  ];
-  if (!user && protectedPaths.some((p) => pathname.startsWith(p))) {
+  const protectedPaths = ["/dashboard", "/grades", "/analytics", "/strategy", "/calendar", "/mock-exam"];
+  if (!isAuthenticated && protectedPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return supabaseResponse;
+  return NextResponse.next();
 }
 
 export const config = {
